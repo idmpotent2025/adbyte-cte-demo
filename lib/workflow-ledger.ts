@@ -36,12 +36,11 @@ export function isAgentAuthorized(
   workflowId: string,
   agentName: string,
   api: string,
-  scope: string,
 ): boolean {
   const entry = ledger.get(workflowId);
   if (!entry || entry.status !== 'active') return false;
   return entry.tasks.some(
-    (t) => t.agent === agentName && t.api === api && t.scope === scope,
+    (t) => t.agent === agentName && t.api === api,
   );
 }
 

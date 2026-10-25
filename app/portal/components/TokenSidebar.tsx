@@ -75,6 +75,18 @@ function TokenCard({ token, index, now }: { token: IssuedToken; index: number; n
         ))}
       </div>
 
+      {/* IAM reasoning — only shown on CTE tokens */}
+      {token.grantType === 'token_exchange' && token.iamReasoning && (
+        <div
+          className="rounded p-2 text-xs"
+          style={{
+            background: 'rgba(227,179,65,0.06)',
+            border: '1px solid rgba(227,179,65,0.18)',
+          }}>
+          <div className="font-medium mb-1" style={{ color: '#e3b341' }}>IAM Reasoning</div>
+          <div style={{ color: '#8b949e', lineHeight: '1.5' }}>{token.iamReasoning}</div>
+        </div>
+      )}
     </div>
   );
 }

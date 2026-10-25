@@ -62,6 +62,8 @@ export interface IssuedToken {
     preserved: string[];
     changed: string[];
   };
+  /** IAM Agent's LLM reasoning for why these scopes were granted (CTE tokens only) */
+  iamReasoning?: string;
 }
 
 export interface AgentExecution {

@@ -1,32 +1,118 @@
+import OpenAI from 'openai';
 import { v4 as uuidv4 } from 'uuid';
 import type { IssuedToken } from '../types';
 import { registerToken } from '../token-registry';
 import { isAgentAuthorized } from '../workflow-ledger';
 import { getCteProfile, getTokenLabel } from '../cte-profiles';
 
+let _openai: OpenAI | null = null;
+function getOpenAI() {
+  if (!_openai) _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return _openai;
+}
+
+interface IamScopeDecision {
+  grantedScopes: string[];
+  reasoning: string;
+  denied: string[];
+}
+
+async function decideScopesWithLLM(
+  agentName: string,
+  api: string,
+  taskDescription: string,
+  allowedScopes: string[],
+): Promise<IamScopeDecision> {
+  if (!process.env.OPENAI_API_KEY) {
+    // Demo fallback: grant all allowedScopes for the relevant api
+    const granted = allowedScopes.filter((s) => s.startsWith(`${api}:`));
+    return {
+      grantedScopes: granted,
+      reasoning: `Demo mode (no OPENAI_API_KEY): granted all ${api} scopes from the agent profile.`,
+      denied: allowedScopes.filter((s) => !s.startsWith(`${api}:`)),
+    };
+  }
+
+  const completion = await getOpenAI().chat.completions.create({
+    model: 'gpt-4o',
+    temperature: 0.1,
+    messages: [
+      {
+        role: 'system',
+        content: `You are an IAM policy agent for a zero-trust ad tech platform.
+Your job: given a task description and the full list of scopes this agent profile allows,
+decide the MINIMUM scopes strictly needed to complete the task. Never over-provision.
+Only grant scopes the task explicitly requires. Deny everything else.`,
+      },
+      {
+        role: 'user',
+        content: `Agent: ${agentName}
+API: ${api}
+Task: ${taskDescription}
+Available scopes: ${allowedScopes.join(', ')}
+
+Return only the scopes from the available list that are strictly necessary for this task.`,
+      },
+    ],
+    response_format: {
+      type: 'json_schema',
+      json_schema: {
+        name: 'iam_scope_decision',
+        strict: true,
+        schema: {
+          type: 'object',
+          properties: {
+            grantedScopes: { type: 'array', items: { type: 'string' } },
+            reasoning: { type: 'string' },
+            denied: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['grantedScopes', 'reasoning', 'denied'],
+          additionalProperties: false,
+        },
+      },
+    },
+  });
+
+  const raw = completion.choices[0].message.content ?? '{}';
+  const decision = JSON.parse(raw) as IamScopeDecision;
+
+  // Safety: only ever grant scopes that are actually in the profile's allowedScopes
+  const safe = decision.grantedScopes.filter((s) => allowedScopes.includes(s));
+  const denied = allowedScopes.filter((s) => !safe.includes(s));
+  return { grantedScopes: safe, reasoning: decision.reasoning, denied };
+}
+
 export async function performTokenExchange(opts: {
   userToken: IssuedToken;
   agentName: 'buyer-agent' | 'publisher-agent';
   api: 'audience' | 'proposal' | 'pricing';
-  scope: string;
+  taskDescription: string;
   planId: string;
   workflowId: string;
   taskId?: string;
 }): Promise<IssuedToken> {
-  const { userToken, agentName, api, scope, workflowId, taskId } = opts;
+  const { userToken, agentName, api, taskDescription, workflowId, taskId } = opts;
 
-  if (!isAgentAuthorized(workflowId, agentName, api, scope)) {
-    throw new Error(`IAM: "${agentName}" not authorized for ${api}:${scope} — request not in orchestration plan`);
+  if (!isAgentAuthorized(workflowId, agentName, api)) {
+    throw new Error(`IAM: "${agentName}" not authorized for ${api} — request not in orchestration plan`);
   }
 
   const profile = getCteProfile(agentName);
   const tokenLabel = getTokenLabel(agentName, api);
 
-  const requestedScopes = scope.split(' ').filter(Boolean);
-  const disallowed = requestedScopes.filter((s) => !profile.allowedScopes.includes(s));
-  if (disallowed.length > 0) {
-    throw new Error(`IAM: scope(s) "${disallowed.join(', ')}" not permitted by profile "${profile.name}"`);
+  // IAM uses LLM reasoning to decide the minimal scopes for this task
+  const { grantedScopes, reasoning } = await decideScopesWithLLM(
+    agentName,
+    api,
+    taskDescription,
+    profile.allowedScopes,
+  );
+
+  if (grantedScopes.length === 0) {
+    throw new Error(`IAM: LLM denied all scopes for "${agentName}" → ${api} (task: "${taskDescription}")`);
   }
+
+  const scope = grantedScopes.join(' ');
 
   const id = uuidv4();
   const now = new Date().toISOString();
@@ -82,6 +168,7 @@ export async function performTokenExchange(opts: {
       preserved: ['sub'],
       changed: ['azp', 'aud', 'scope', 'act'],
     },
+    iamReasoning: reasoning,
   };
 
   registerToken({

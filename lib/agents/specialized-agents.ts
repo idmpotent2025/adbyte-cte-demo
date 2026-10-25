@@ -139,19 +139,20 @@ export async function runSpecializedAgent(
   const startedAt = new Date().toISOString();
   const agentDisplayName = task.agent === 'buyer-agent' ? 'Buyer Agent' : 'Publisher Agent';
 
-  // The agent asks IAM for a token. IAM decides the Auth0 client, audience, and
-  // token type — the agent only knows what task it's doing (api + scope from the plan).
+  // The agent asks IAM for a token by describing the task — it does not know or
+  // request specific scopes. IAM's LLM decides the minimal scopes from its profile.
   const requestTokenFromIAM = async (renewalNote?: string): Promise<IssuedToken> => {
     const iamStartedAt = new Date().toISOString();
     const token = await performTokenExchange({
       userToken: context.userToken,
       agentName: task.agent,
       api: task.api,
-      scope: task.scope,
+      taskDescription: task.description,
       planId: context.planId,
       workflowId: context.workflowId,
       taskId: task.taskId,
     });
+    const grantedScope = String(token.payload.scope ?? '');
     onProgress({
       type: 'iam_complete',
       iamExecution: {
@@ -163,7 +164,7 @@ export async function runSpecializedAgent(
         startedAt: iamStartedAt,
         completedAt: new Date().toISOString(),
         status: 'complete',
-        notes: renewalNote ?? `CTE for ${agentDisplayName} → ${task.api} API (scope: ${task.scope})`,
+        notes: renewalNote ?? `CTE for ${agentDisplayName} → ${task.api} API (granted: ${grantedScope})`,
       },
       token,
     });
