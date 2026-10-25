@@ -28,6 +28,7 @@ export default function PortalClient({ user }: Props) {
   const [run, setRun] = useState<WorkflowRun | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [statusText, setStatusText] = useState('');
+  const [approvalBusy, setApprovalBusy] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const examples = EXAMPLE_PROMPTS[user.role ?? 'buyer'];
@@ -72,6 +73,7 @@ export default function PortalClient({ user }: Props) {
               setStatusText(
                 update.status === 'planning' ? 'Orchestrator planning…' :
                 update.status === 'executing' ? `Executing ${update.tasks.filter((t) => t.status === 'complete').length}/${update.tasks.length} tasks…` :
+                update.status === 'awaiting_approval' ? 'Waiting for approval…' :
                 update.status === 'complete' ? 'Complete' :
                 update.status === 'error' ? `Error: ${update.summary}` : '',
               );
@@ -85,6 +87,34 @@ export default function PortalClient({ user }: Props) {
       }
     } finally {
       setIsRunning(false);
+    }
+  }
+
+  async function handleApprove() {
+    if (!run?.id) return;
+    setApprovalBusy(true);
+    try {
+      await fetch('/api/iam/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workflowId: run.id }),
+      });
+    } finally {
+      setApprovalBusy(false);
+    }
+  }
+
+  async function handleReject() {
+    if (!run?.id) return;
+    setApprovalBusy(true);
+    try {
+      await fetch('/api/iam/reject', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workflowId: run.id }),
+      });
+    } finally {
+      setApprovalBusy(false);
     }
   }
 
@@ -178,28 +208,64 @@ export default function PortalClient({ user }: Props) {
             ))}
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleRun}
-              disabled={!prompt.trim() || isRunning}
-              className="px-4 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-40"
-              style={{ background: '#238636', color: '#fff' }}>
-              {isRunning ? (
-                <span className="flex items-center gap-2">
-                  <div className="w-3.5 h-3.5 border border-white/30 border-t-white rounded-full animate-spin" />
-                  Running…
+          {run?.status === 'awaiting_approval' && run.pendingApproval ? (
+            <div className="mt-3 p-4 rounded-xl"
+              style={{ background: 'rgba(248,81,73,0.06)', border: '1px solid rgba(248,81,73,0.3)' }}>
+              <div className="flex items-start gap-3">
+                <div className="text-lg flex-shrink-0">🔒</div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium mb-1" style={{ color: '#f85149' }}>
+                    IAM Agent: Authorization Required
+                  </div>
+                  <div className="text-xs mb-3" style={{ color: '#8b949e' }}>
+                    Token <span className="font-mono" style={{ color: '#c9d1d9' }}>
+                      &quot;{run.pendingApproval.revokedTokenLabel}&quot;
+                    </span> used by <span style={{ color: '#c9d1d9' }}>{run.pendingApproval.agentName}</span> was
+                    revoked. Approve re-issuance to continue the workflow.
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleApprove}
+                      disabled={approvalBusy}
+                      className="px-4 py-1.5 rounded-lg text-sm font-medium transition-all disabled:opacity-50"
+                      style={{ background: '#238636', color: '#fff' }}>
+                      {approvalBusy ? '…' : 'Approve Re-issuance'}
+                    </button>
+                    <button
+                      onClick={handleReject}
+                      disabled={approvalBusy}
+                      className="px-3 py-1.5 rounded-lg text-sm transition-all disabled:opacity-50"
+                      style={{ background: '#21262d', color: '#8b949e', border: '1px solid #30363d' }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleRun}
+                disabled={!prompt.trim() || isRunning}
+                className="px-4 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-40"
+                style={{ background: '#238636', color: '#fff' }}>
+                {isRunning ? (
+                  <span className="flex items-center gap-2">
+                    <div className="w-3.5 h-3.5 border border-white/30 border-t-white rounded-full animate-spin" />
+                    Running…
+                  </span>
+                ) : '▶ Run Workflow'}
+              </button>
+
+              {statusText && (
+                <span className="text-xs" style={{ color: isRunning ? '#e3b341' : run?.status === 'error' ? '#f85149' : '#56d364' }}>
+                  {statusText}
                 </span>
-              ) : '▶ Run Workflow'}
-            </button>
+              )}
 
-            {statusText && (
-              <span className="text-xs" style={{ color: isRunning ? '#e3b341' : run?.status === 'error' ? '#f85149' : '#56d364' }}>
-                {statusText}
-              </span>
-            )}
-
-            <span className="ml-auto text-xs" style={{ color: '#6e7681' }}>⌘ + Enter</span>
-          </div>
+              <span className="ml-auto text-xs" style={{ color: '#6e7681' }}>⌘ + Enter</span>
+            </div>
+          )}
         </div>
 
         {/* Summary if complete */}
@@ -237,7 +303,7 @@ export default function PortalClient({ user }: Props) {
 
           <div className="flex-1 overflow-auto">
             {tab === 'tokens' && (
-              <TokenChain tokens={run?.tokens ?? []} />
+              <TokenChain tokens={run?.tokens ?? []} workflowId={run?.id} />
             )}
             {tab === 'graph' && (
               <AgentGraphView run={run} />

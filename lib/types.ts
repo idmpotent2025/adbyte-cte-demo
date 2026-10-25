@@ -1,4 +1,21 @@
 export type UserRole = 'buyer' | 'publisher';
+export type TokenStatus = 'active' | 'expired' | 'revoked';
+
+export interface TokenRegistryEntry {
+  id: string;
+  label: string;
+  issuedAt: string;
+  expiresAt: string;
+  status: TokenStatus;
+  revokedAt?: string;
+  agentName: string;
+  workflowId: string;
+  taskId?: string;
+  grantType: 'authorization_code' | 'token_exchange';
+  scope: string;
+  audience: string;
+  payload: Record<string, unknown>;
+}
 
 export interface SessionUser {
   sub: string;
@@ -72,12 +89,18 @@ export interface WorkflowRun {
   executions: AgentExecution[];
   tokens: IssuedToken[];
   summary: string;
-  status: 'planning' | 'executing' | 'complete' | 'error';
+  status: 'planning' | 'executing' | 'complete' | 'error' | 'awaiting_approval';
   startedAt: string;
   completedAt?: string;
   isDemoMode: boolean;
   userRole: UserRole;
   userId: string;
+  pendingApproval?: {
+    taskId: string;
+    revokedTokenId: string;
+    revokedTokenLabel: string;
+    agentName: string;
+  };
 }
 
 export interface OrchestratorPlan {

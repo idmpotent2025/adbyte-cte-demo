@@ -1,5 +1,54 @@
 import type { PlanTask, IssuedToken, AgentExecution } from '../types';
 import { v4 as uuidv4 } from 'uuid';
+import { getToken, revokeToken } from '../token-registry';
+
+export class ApiGatewayError extends Error {
+  constructor(
+    public readonly code: string,
+    public readonly httpStatus: number,
+    message?: string,
+  ) {
+    super(message ?? code);
+    this.name = 'ApiGatewayError';
+  }
+}
+
+const API_AUDIENCES: Record<string, string> = {
+  audience: process.env.AUDIENCE_API_IDENTIFIER ?? 'https://admanager.demo/audience',
+  proposal: process.env.PROPOSAL_API_IDENTIFIER ?? 'https://admanager.demo/proposal',
+  pricing: process.env.PRICING_API_IDENTIFIER ?? 'https://admanager.demo/pricing',
+};
+
+function validateToken(token: IssuedToken, requiredScope: string, api: string): void {
+  const entry = getToken(token.id);
+  if (!entry) throw new ApiGatewayError('token_not_found', 401, `Token ${token.id.slice(0, 8)} not in registry`);
+
+  // Expiry check
+  const now = Math.floor(Date.now() / 1000);
+  const exp = token.payload.exp as number | undefined;
+  if (exp && now > exp) {
+    revokeToken(token.id);
+    throw new ApiGatewayError('token_expired', 401, `Token expired at ${new Date(exp * 1000).toISOString()}`);
+  }
+
+  // Revocation check
+  if (entry.status === 'revoked') {
+    throw new ApiGatewayError('token_revoked', 401, `Token "${token.label}" has been revoked`);
+  }
+
+  // Scope check
+  const scopes = ((token.payload.scope as string) ?? '').split(' ');
+  if (!scopes.includes(requiredScope)) {
+    throw new ApiGatewayError('insufficient_scope', 403, `Required scope '${requiredScope}' not present`);
+  }
+
+  // Audience check
+  const expectedAudience = API_AUDIENCES[api];
+  const aud = token.payload.aud as string;
+  if (aud !== expectedAudience) {
+    throw new ApiGatewayError('invalid_audience', 401, `Token audience '${aud}' does not match API '${expectedAudience}'`);
+  }
+}
 
 const MOCK_RESPONSES: Record<string, (params: Record<string, unknown>) => unknown> = {
   search_audiences: (p) => ({
@@ -72,7 +121,10 @@ export async function runSpecializedAgent(
 ): Promise<{ execution: AgentExecution; result: unknown }> {
   const startedAt = new Date().toISOString();
 
-  // Simulate API call with a small delay
+  // API gateway validation — throws ApiGatewayError on any violation
+  validateToken(agentToken, task.scope, task.api);
+
+  // Simulate API network latency
   await new Promise((r) => setTimeout(r, 150 + Math.random() * 300));
 
   const handler = MOCK_RESPONSES[task.tool];

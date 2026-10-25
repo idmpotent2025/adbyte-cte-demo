@@ -6,7 +6,9 @@ import { getDemoSession } from '@/lib/demo-session';
 import { hashPrompt, generatePlanId, generateWorkflowId } from '@/lib/crypto';
 import { runOrchestrator } from '@/lib/agents/orchestrator';
 import { performTokenExchange } from '@/lib/agents/iam-agent';
-import { runSpecializedAgent } from '@/lib/agents/specialized-agents';
+import { runSpecializedAgent, ApiGatewayError } from '@/lib/agents/specialized-agents';
+import { waitForApproval } from '@/lib/approval-registry';
+import { registerToken } from '@/lib/token-registry';
 import type { WorkflowRun, IssuedToken, AgentExecution, PlanTask } from '@/lib/types';
 
 const DEMO_SECRET = new TextEncoder().encode(
@@ -39,10 +41,11 @@ async function mintUserToken(userId: string, email: string, isDemoModeFlag: bool
   const header = JSON.parse(Buffer.from(rawHeader, 'base64url').toString());
   const payload = JSON.parse(Buffer.from(rawPayload, 'base64url').toString());
 
-  return {
+  const issuedAt = new Date().toISOString();
+  const token: IssuedToken = {
     id,
     label: 'User Portal Token',
-    issuedAt: new Date().toISOString(),
+    issuedAt,
     grantType: 'authorization_code',
     issuedBy: isDemoModeFlag ? 'demo-iam' : 'auth0',
     rawToken,
@@ -53,6 +56,22 @@ async function mintUserToken(userId: string, email: string, isDemoModeFlag: bool
       changed: ['sub', 'aud', 'azp', 'scope'],
     },
   };
+
+  registerToken({
+    id,
+    label: 'User Portal Token',
+    issuedAt,
+    expiresAt: new Date((payload.exp as number) * 1000).toISOString(),
+    status: 'active',
+    agentName: 'portal',
+    workflowId: '',
+    grantType: 'authorization_code',
+    scope: (payload.scope as string) ?? '',
+    audience: (payload.aud as string) ?? '',
+    payload,
+  });
+
+  return token;
 }
 
 export async function POST(req: NextRequest) {
@@ -198,13 +217,65 @@ export async function POST(req: NextRequest) {
           taskTokens.set(task.taskId, agentToken);
           emit(run);
 
-          // Specialized agent: call mock API
-          const { execution: agentExec, result } = await runSpecializedAgent(task, agentToken);
-          run.executions.push(agentExec);
-          task.status = 'complete';
-          task.result = result;
-          completed.add(task.taskId);
-          emit(run);
+          // Specialized agent: call mock API (with revocation pause/resume)
+          let currentToken = agentToken;
+          for (;;) {
+            try {
+              const { execution: agentExec, result } = await runSpecializedAgent(task, currentToken);
+              run.executions.push(agentExec);
+              task.status = 'complete';
+              task.result = result;
+              completed.add(task.taskId);
+              emit(run);
+              break;
+            } catch (err) {
+              if (err instanceof ApiGatewayError && err.code === 'token_revoked') {
+                run.status = 'awaiting_approval';
+                run.pendingApproval = {
+                  taskId: task.taskId,
+                  revokedTokenId: currentToken.id,
+                  revokedTokenLabel: currentToken.label,
+                  agentName: task.agent,
+                };
+                emit(run);
+
+                await waitForApproval(workflowId);
+
+                const newToken = await performTokenExchange({
+                  userToken,
+                  agentName: task.agent,
+                  api: task.api,
+                  scope: task.scope,
+                  planId,
+                  workflowId,
+                  agentIp,
+                  isDemoMode,
+                  taskId: task.taskId,
+                });
+
+                run.tokens.push(newToken);
+                taskTokens.set(task.taskId, newToken);
+                run.executions.push({
+                  id: uuidv4(),
+                  agentName: 'IAM Agent',
+                  agentType: 'iam-agent',
+                  taskId: task.taskId,
+                  startedAt: new Date().toISOString(),
+                  completedAt: new Date().toISOString(),
+                  status: 'complete',
+                  tokenLabel: newToken.label,
+                  notes: 'Re-issued token after user approved re-authorization',
+                });
+                run.status = 'executing';
+                run.pendingApproval = undefined;
+                currentToken = newToken;
+                emit(run);
+                // loop continues — retry with new token
+              } else {
+                throw err;
+              }
+            }
+          }
         }
 
         run.status = 'complete';

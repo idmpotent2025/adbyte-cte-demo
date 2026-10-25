@@ -1,6 +1,7 @@
 import { SignJWT } from 'jose';
 import { v4 as uuidv4 } from 'uuid';
 import type { IssuedToken, UserRole } from '../types';
+import { registerToken } from '../token-registry';
 
 const DEMO_SECRET = new TextEncoder().encode(
   (process.env.DEMO_JWT_SECRET ?? 'adbyte-demo-secret-key-minimum-32-chars!!').padEnd(32, '!'),
@@ -21,8 +22,9 @@ export async function performTokenExchange(opts: {
   workflowId: string;
   agentIp: string;
   isDemoMode: boolean;
+  taskId?: string;
 }): Promise<IssuedToken> {
-  const { userToken, agentName, api, scope, planId, workflowId, agentIp, isDemoMode } = opts;
+  const { userToken, agentName, api, scope, planId, workflowId, agentIp, isDemoMode, taskId } = opts;
   const audience = API_AUDIENCES[api];
   const actingClientId = `demo-${agentName}`;
   const now = new Date().toISOString();
@@ -57,7 +59,7 @@ export async function performTokenExchange(opts: {
   const decodedHeader = JSON.parse(Buffer.from(rawHeader, 'base64url').toString());
   const decodedPayload = JSON.parse(Buffer.from(rawPayload, 'base64url').toString());
 
-  return {
+  const issuedToken: IssuedToken = {
     id,
     label: `${agentName} → ${api} API token`,
     issuedAt: now,
@@ -78,6 +80,23 @@ export async function performTokenExchange(opts: {
       changed: ['azp', 'aud', 'scope', 'act', 'adbyte/plan_id', 'adbyte/agent_ip'],
     },
   };
+
+  registerToken({
+    id,
+    label: issuedToken.label,
+    issuedAt: now,
+    expiresAt: new Date((decodedPayload.exp as number) * 1000).toISOString(),
+    status: 'active',
+    agentName,
+    workflowId,
+    taskId,
+    grantType: 'token_exchange',
+    scope,
+    audience,
+    payload: decodedPayload,
+  });
+
+  return issuedToken;
 }
 
 async function performAuth0CTE(

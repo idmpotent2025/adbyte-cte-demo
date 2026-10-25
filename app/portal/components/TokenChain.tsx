@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import type { IssuedToken } from '@/lib/types';
+import { useState, useEffect, useCallback } from 'react';
+import type { IssuedToken, TokenRegistryEntry, TokenStatus } from '@/lib/types';
 
 function ClaimRow({ k, v, highlight }: { k: string; v: unknown; highlight?: 'preserved' | 'changed' }) {
   const valStr = typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v);
@@ -23,9 +23,55 @@ function ClaimRow({ k, v, highlight }: { k: string; v: unknown; highlight?: 'pre
   );
 }
 
-function TokenCard({ token, index }: { token: IssuedToken; index: number }) {
+function StatusBadge({ status }: { status: TokenStatus }) {
+  const cfg = {
+    active:  { label: 'Active',  bg: 'rgba(35,134,54,0.15)',  color: '#56d364', border: 'rgba(35,134,54,0.3)' },
+    expired: { label: 'Expired', bg: 'rgba(139,92,246,0.15)', color: '#c4b5fd', border: 'rgba(139,92,246,0.3)' },
+    revoked: { label: 'Revoked', bg: 'rgba(248,81,73,0.15)',  color: '#f85149', border: 'rgba(248,81,73,0.3)' },
+  }[status];
+
+  return (
+    <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+      style={{ background: cfg.bg, color: cfg.color, border: `1px solid ${cfg.border}` }}>
+      {cfg.label}
+    </span>
+  );
+}
+
+function ExpiryLabel({ expiresAt }: { expiresAt: string }) {
+  const exp = new Date(expiresAt).getTime();
+  const now = Date.now();
+  const diffMs = exp - now;
+  const absDiffMin = Math.round(Math.abs(diffMs) / 60000);
+
+  const label = diffMs > 0
+    ? absDiffMin < 60
+      ? `expires in ${absDiffMin}m`
+      : `expires in ${Math.round(absDiffMin / 60)}h`
+    : absDiffMin < 60
+      ? `expired ${absDiffMin}m ago`
+      : `expired ${Math.round(absDiffMin / 60)}h ago`;
+
+  return (
+    <span className="text-xs" style={{ color: diffMs > 0 ? '#6e7681' : '#f85149' }}>
+      {label}
+    </span>
+  );
+}
+
+interface TokenCardProps {
+  token: IssuedToken;
+  index: number;
+  registryEntry?: TokenRegistryEntry;
+  onRevoke: (tokenId: string) => Promise<void>;
+}
+
+function TokenCard({ token, index, registryEntry, onRevoke }: TokenCardProps) {
   const [expanded, setExpanded] = useState(index === 0);
   const [showRaw, setShowRaw] = useState(false);
+  const [revoking, setRevoking] = useState(false);
+
+  const status = registryEntry?.status ?? 'active';
 
   const grantBadge = token.grantType === 'token_exchange'
     ? { label: 'CTE', bg: 'rgba(227,179,65,0.15)', color: '#e3b341', border: 'rgba(227,179,65,0.3)' }
@@ -35,13 +81,24 @@ function TokenCard({ token, index }: { token: IssuedToken; index: number }) {
     ? { label: 'Auth0', color: '#58a6ff' }
     : { label: 'Demo', color: '#8b949e' };
 
+  const borderColor = status === 'revoked' ? 'rgba(248,81,73,0.4)' :
+    status === 'expired' ? 'rgba(139,92,246,0.3)' : '#30363d';
+
+  async function handleRevoke(e: React.MouseEvent) {
+    e.stopPropagation();
+    setRevoking(true);
+    try {
+      await onRevoke(token.id);
+    } finally {
+      setRevoking(false);
+    }
+  }
+
   return (
-    <div className="rounded-xl overflow-hidden" style={{ border: '1px solid #30363d', background: '#161b22' }}>
-      {/* Card header */}
+    <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${borderColor}`, background: '#161b22' }}>
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center gap-3 p-4 text-left hover:bg-white/[0.02] transition-colors">
-        {/* Index circle */}
         <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
           style={{
             background: index === 0 ? 'rgba(31,111,235,0.2)' : 'rgba(35,134,54,0.2)',
@@ -52,20 +109,33 @@ function TokenCard({ token, index }: { token: IssuedToken; index: number }) {
 
         <div className="flex-1 min-w-0">
           <div className="font-medium text-sm truncate" style={{ color: '#e6edf3' }}>{token.label}</div>
-          <div className="text-xs mt-0.5" style={{ color: '#6e7681' }}>
-            {new Date(token.issuedAt).toLocaleTimeString()}
-            {' · '}sub: <span className="font-mono" style={{ color: '#c9d1d9' }}>
-              {String(token.payload.sub ?? '').slice(0, 24)}…
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-xs" style={{ color: '#6e7681' }}>
+              {new Date(token.issuedAt).toLocaleTimeString()}
+              {' · '}sub: <span className="font-mono" style={{ color: '#c9d1d9' }}>
+                {String(token.payload.sub ?? '').slice(0, 24)}…
+              </span>
             </span>
+            {registryEntry && <ExpiryLabel expiresAt={registryEntry.expiresAt} />}
           </div>
         </div>
 
         <div className="flex items-center gap-2">
+          {registryEntry && <StatusBadge status={status} />}
           <span className="text-xs px-2 py-0.5 rounded-full"
             style={{ background: grantBadge.bg, color: grantBadge.color, border: `1px solid ${grantBadge.border}` }}>
             {grantBadge.label}
           </span>
           <span className="text-xs" style={{ color: '#6e7681' }}>{issuedByBadge.label}</span>
+          {status === 'active' && registryEntry && (
+            <button
+              onClick={handleRevoke}
+              disabled={revoking}
+              className="text-xs px-2 py-0.5 rounded transition-colors disabled:opacity-50"
+              style={{ background: 'rgba(248,81,73,0.12)', color: '#f85149', border: '1px solid rgba(248,81,73,0.3)' }}>
+              {revoking ? '…' : 'Revoke'}
+            </button>
+          )}
           <svg className="w-4 h-4 transition-transform" style={{ color: '#6e7681', transform: expanded ? 'rotate(180deg)' : '' }}
             fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -75,7 +145,13 @@ function TokenCard({ token, index }: { token: IssuedToken; index: number }) {
 
       {expanded && (
         <div className="px-4 pb-4 space-y-4 border-t" style={{ borderColor: '#21262d' }}>
-          {/* CTE exchange request */}
+          {registryEntry?.revokedAt && (
+            <div className="mt-4 px-3 py-2 rounded-lg text-xs"
+              style={{ background: 'rgba(248,81,73,0.08)', border: '1px solid rgba(248,81,73,0.2)', color: '#f85149' }}>
+              Revoked at {new Date(registryEntry.revokedAt).toLocaleTimeString()}
+            </div>
+          )}
+
           {token.exchangeRequest && (
             <div className="mt-4 p-3 rounded-lg text-xs" style={{ background: '#0d1117', border: '1px solid #21262d' }}>
               <div className="font-medium mb-2" style={{ color: '#8b949e' }}>Token Exchange Request (RFC 8693)</div>
@@ -90,7 +166,6 @@ function TokenCard({ token, index }: { token: IssuedToken; index: number }) {
             </div>
           )}
 
-          {/* Claims */}
           <div>
             <div className="flex items-center gap-3 mb-2">
               <span className="text-xs font-medium" style={{ color: '#8b949e' }}>JWT Claims</span>
@@ -108,7 +183,6 @@ function TokenCard({ token, index }: { token: IssuedToken; index: number }) {
             </div>
           </div>
 
-          {/* Raw JWT toggle */}
           <button onClick={() => setShowRaw(!showRaw)}
             className="text-xs" style={{ color: '#8b949e' }}>
             {showRaw ? '▲ Hide' : '▼ Show'} raw JWT
@@ -125,7 +199,44 @@ function TokenCard({ token, index }: { token: IssuedToken; index: number }) {
   );
 }
 
-export default function TokenChain({ tokens }: { tokens: IssuedToken[] }) {
+interface Props {
+  tokens: IssuedToken[];
+  workflowId?: string;
+}
+
+export default function TokenChain({ tokens, workflowId }: Props) {
+  const [registry, setRegistry] = useState<Map<string, TokenRegistryEntry>>(new Map());
+
+  const fetchRegistry = useCallback(async () => {
+    try {
+      const url = workflowId
+        ? `/api/iam/tokens?workflowId=${workflowId}`
+        : '/api/iam/tokens';
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const entries = await res.json() as TokenRegistryEntry[];
+      setRegistry(new Map(entries.map((e) => [e.id, e])));
+    } catch { /* ignore */ }
+  }, [workflowId]);
+
+  useEffect(() => {
+    fetchRegistry();
+    // Poll while tab is visible so status stays live
+    const id = setInterval(fetchRegistry, 5000);
+    return () => clearInterval(id);
+  }, [fetchRegistry]);
+
+  async function handleRevoke(tokenId: string) {
+    const res = await fetch('/api/iam/revoke', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tokenId }),
+    });
+    if (res.ok) {
+      await fetchRegistry();
+    }
+  }
+
   if (tokens.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20" style={{ color: '#6e7681' }}>
@@ -135,18 +246,41 @@ export default function TokenChain({ tokens }: { tokens: IssuedToken[] }) {
     );
   }
 
+  const activeCount = tokens.filter((t) => (registry.get(t.id)?.status ?? 'active') === 'active').length;
+  const revokedCount = tokens.filter((t) => registry.get(t.id)?.status === 'revoked').length;
+
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex items-center gap-3 mb-4">
         <div className="text-sm font-medium" style={{ color: '#8b949e' }}>
           {tokens.length} token{tokens.length !== 1 ? 's' : ''} issued
         </div>
+        {revokedCount > 0 && (
+          <span className="text-xs px-2 py-0.5 rounded-full"
+            style={{ background: 'rgba(248,81,73,0.12)', color: '#f85149', border: '1px solid rgba(248,81,73,0.3)' }}>
+            {revokedCount} revoked
+          </span>
+        )}
+        <span className="text-xs px-2 py-0.5 rounded-full"
+          style={{ background: 'rgba(35,134,54,0.12)', color: '#56d364', border: '1px solid rgba(35,134,54,0.3)' }}>
+          {activeCount} active
+        </span>
         <div className="flex-1 h-px" style={{ background: '#21262d' }} />
+        <button onClick={fetchRegistry}
+          className="text-xs px-2 py-0.5 rounded transition-colors"
+          style={{ background: '#21262d', color: '#8b949e', border: '1px solid #30363d' }}>
+          ↻ Refresh
+        </button>
       </div>
 
       {tokens.map((token, i) => (
         <div key={token.id}>
-          <TokenCard token={token} index={i} />
+          <TokenCard
+            token={token}
+            index={i}
+            registryEntry={registry.get(token.id)}
+            onRevoke={handleRevoke}
+          />
           {i < tokens.length - 1 && (
             <div className="flex justify-center my-1">
               <div className="flex flex-col items-center gap-0.5">
