@@ -34,7 +34,7 @@ export async function performTokenExchange(opts: {
   const params = new URLSearchParams({
     grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
     subject_token: userToken.rawToken,
-    subject_token_type: 'urn:ietf:params:oauth:token-type:access_token',
+    subject_token_type: profile.subjectTokenType,
     requested_token_type: profile.requestedSubTokenType,
     audience: profile.audience,
     scope,

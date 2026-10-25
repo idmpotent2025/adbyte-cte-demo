@@ -1,5 +1,7 @@
 export interface CteProfile {
   name: string;
+  /** subject_token_type sent to Auth0 — lets each agent route to its own token-exchange Action */
+  subjectTokenType: string;
   requestedSubTokenType: 'urn:ietf:params:oauth:token-type:access_token';
   clientId: string;
   clientSecret: string;
@@ -10,6 +12,7 @@ export interface CteProfile {
 const PROFILES: Record<'buyer-agent' | 'publisher-agent', CteProfile> = {
   'buyer-agent': {
     name: 'Buyer Agent',
+    subjectTokenType: process.env.BUYER_AGENT_SUBJECT_TOKEN_TYPE ?? 'urn:ietf:params:oauth:token-type:access_token',
     requestedSubTokenType: 'urn:ietf:params:oauth:token-type:access_token',
     clientId: process.env.BUYER_AGENT_CLIENT_ID ?? '',
     clientSecret: process.env.BUYER_AGENT_CLIENT_SECRET ?? '',
@@ -21,6 +24,7 @@ const PROFILES: Record<'buyer-agent' | 'publisher-agent', CteProfile> = {
   },
   'publisher-agent': {
     name: 'Publisher Agent',
+    subjectTokenType: process.env.PUBLISHER_AGENT_SUBJECT_TOKEN_TYPE ?? 'urn:ietf:params:oauth:token-type:access_token',
     requestedSubTokenType: 'urn:ietf:params:oauth:token-type:access_token',
     clientId: process.env.PUBLISHER_AGENT_CLIENT_ID ?? '',
     clientSecret: process.env.PUBLISHER_AGENT_CLIENT_SECRET ?? '',
