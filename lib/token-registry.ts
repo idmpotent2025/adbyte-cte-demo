@@ -3,7 +3,6 @@ import type { TokenRegistryEntry, TokenStatus } from './types';
 const registry = new Map<string, TokenRegistryEntry>();
 
 export function resolveStatus(entry: TokenRegistryEntry): TokenStatus {
-  if (entry.status === 'revoked') return 'revoked';
   const now = Math.floor(Date.now() / 1000);
   const exp = entry.payload.exp as number | undefined;
   if (exp && now > exp) return 'expired';
@@ -17,7 +16,7 @@ export function registerToken(entry: TokenRegistryEntry): void {
 export function revokeToken(id: string): boolean {
   const entry = registry.get(id);
   if (!entry) return false;
-  registry.set(id, { ...entry, status: 'revoked', revokedAt: new Date().toISOString() });
+  registry.set(id, { ...entry, status: 'expired' });
   return true;
 }
 

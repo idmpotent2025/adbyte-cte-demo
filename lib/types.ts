@@ -1,5 +1,5 @@
 export type UserRole = 'buyer' | 'publisher';
-export type TokenStatus = 'active' | 'expired' | 'revoked';
+export type TokenStatus = 'active' | 'expired';
 
 export interface TokenRegistryEntry {
   id: string;
@@ -7,7 +7,6 @@ export interface TokenRegistryEntry {
   issuedAt: string;
   expiresAt: string;
   status: TokenStatus;
-  revokedAt?: string;
   agentName: string;
   workflowId: string;
   taskId?: string;
@@ -42,9 +41,11 @@ export interface PlanTask {
 export interface TokenExchangeRequest {
   grant_type: string;
   subject_token_label: string;
+  requested_sub_token_type: string;
   audience: string;
   scope: string;
   acting_client_id: string;
+  cte_profile_name: string;
 }
 
 export interface IssuedToken {
@@ -52,7 +53,7 @@ export interface IssuedToken {
   label: string;
   issuedAt: string;
   grantType: 'authorization_code' | 'token_exchange';
-  issuedBy: 'auth0' | 'demo-iam';
+  issuedBy: 'auth0';
   rawToken: string;
   header: Record<string, unknown>;
   payload: Record<string, unknown>;
@@ -89,18 +90,11 @@ export interface WorkflowRun {
   executions: AgentExecution[];
   tokens: IssuedToken[];
   summary: string;
-  status: 'planning' | 'executing' | 'complete' | 'error' | 'awaiting_approval';
+  status: 'planning' | 'executing' | 'complete' | 'error';
   startedAt: string;
   completedAt?: string;
-  isDemoMode: boolean;
   userRole: UserRole;
   userId: string;
-  pendingApproval?: {
-    taskId: string;
-    revokedTokenId: string;
-    revokedTokenLabel: string;
-    agentName: string;
-  };
 }
 
 export interface OrchestratorPlan {

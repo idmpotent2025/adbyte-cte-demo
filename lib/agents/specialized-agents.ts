@@ -1,6 +1,7 @@
 import type { PlanTask, IssuedToken, AgentExecution } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { getToken, revokeToken } from '../token-registry';
+import { performTokenExchange } from './iam-agent';
 
 export class ApiGatewayError extends Error {
   constructor(
@@ -13,6 +14,8 @@ export class ApiGatewayError extends Error {
   }
 }
 
+// These audience strings belong to the API gateway (downstream), not the agent.
+// The buyer/publisher agent never reads these — validateToken simulates what the API does.
 const API_AUDIENCES: Record<string, string> = {
   audience: process.env.AUDIENCE_API_IDENTIFIER ?? 'https://admanager.demo/audience',
   proposal: process.env.PROPOSAL_API_IDENTIFIER ?? 'https://admanager.demo/proposal',
@@ -23,7 +26,6 @@ function validateToken(token: IssuedToken, requiredScope: string, api: string): 
   const entry = getToken(token.id);
   if (!entry) throw new ApiGatewayError('token_not_found', 401, `Token ${token.id.slice(0, 8)} not in registry`);
 
-  // Expiry check
   const now = Math.floor(Date.now() / 1000);
   const exp = token.payload.exp as number | undefined;
   if (exp && now > exp) {
@@ -31,18 +33,11 @@ function validateToken(token: IssuedToken, requiredScope: string, api: string): 
     throw new ApiGatewayError('token_expired', 401, `Token expired at ${new Date(exp * 1000).toISOString()}`);
   }
 
-  // Revocation check
-  if (entry.status === 'revoked') {
-    throw new ApiGatewayError('token_revoked', 401, `Token "${token.label}" has been revoked`);
-  }
-
-  // Scope check
   const scopes = ((token.payload.scope as string) ?? '').split(' ');
   if (!scopes.includes(requiredScope)) {
     throw new ApiGatewayError('insufficient_scope', 403, `Required scope '${requiredScope}' not present`);
   }
 
-  // Audience check
   const expectedAudience = API_AUDIENCES[api];
   const aud = token.payload.aud as string;
   if (aud !== expectedAudience) {
@@ -115,39 +110,102 @@ const MOCK_RESPONSES: Record<string, (params: Record<string, unknown>) => unknow
   }),
 };
 
+export interface SpecializedAgentContext {
+  workflowId: string;
+  planId: string;
+  /** The user's original token — opaque to the agent, passed through to IAM for CTE. */
+  userToken: IssuedToken;
+}
+
+export type AgentProgressEvent = {
+  type: 'iam_complete';
+  iamExecution: AgentExecution;
+  token: IssuedToken;
+};
+
+/**
+ * Runs a specialized agent for a single task.
+ *
+ * The agent requests its own token from IAM (it never receives the user token).
+ * IAM validates the request against the workflow ledger, then performs CTE.
+ * The onProgress callback fires as soon as IAM issues a token so the caller
+ * can stream it to the UI without waiting for the full API call to complete.
+ */
 export async function runSpecializedAgent(
   task: PlanTask,
-  agentToken: IssuedToken,
-): Promise<{ execution: AgentExecution; result: unknown }> {
+  context: SpecializedAgentContext,
+  onProgress: (event: AgentProgressEvent) => void,
+): Promise<{ agentExecution: AgentExecution; result: unknown }> {
   const startedAt = new Date().toISOString();
+  const agentDisplayName = task.agent === 'buyer-agent' ? 'Buyer Agent' : 'Publisher Agent';
 
-  // API gateway validation — throws ApiGatewayError on any violation
-  validateToken(agentToken, task.scope, task.api);
-
-  // Simulate API network latency
-  await new Promise((r) => setTimeout(r, 150 + Math.random() * 300));
-
-  const handler = MOCK_RESPONSES[task.tool];
-  const result = handler ? handler(task.parameters) : { status: 'ok', tool: task.tool };
-
-  const completedAt = new Date().toISOString();
-
-  return {
-    execution: {
-      id: uuidv4(),
+  // The agent asks IAM for a token. IAM decides the Auth0 client, audience, and
+  // token type — the agent only knows what task it's doing (api + scope from the plan).
+  const requestTokenFromIAM = async (renewalNote?: string): Promise<IssuedToken> => {
+    const iamStartedAt = new Date().toISOString();
+    const token = await performTokenExchange({
+      userToken: context.userToken,
       agentName: task.agent,
-      agentType: task.agent === 'buyer-agent' ? 'buyer-agent' : 'publisher-agent',
+      api: task.api,
+      scope: task.scope,
+      planId: context.planId,
+      workflowId: context.workflowId,
       taskId: task.taskId,
-      tokenLabel: agentToken.label,
-      apiCalled: `${task.api} API`,
-      toolCalled: task.tool,
-      parameters: task.parameters,
-      startedAt,
-      completedAt,
-      status: 'complete',
-      response: result,
-      notes: `Token: ${agentToken.id.slice(0, 8)}… | scope: ${task.scope}`,
-    },
-    result,
+    });
+    onProgress({
+      type: 'iam_complete',
+      iamExecution: {
+        id: uuidv4(),
+        agentName: 'IAM Agent',
+        agentType: 'iam-agent',
+        taskId: task.taskId,
+        tokenLabel: token.label,
+        startedAt: iamStartedAt,
+        completedAt: new Date().toISOString(),
+        status: 'complete',
+        notes: renewalNote ?? `CTE for ${agentDisplayName} → ${task.api} API (scope: ${task.scope})`,
+      },
+      token,
+    });
+    return token;
   };
+
+  let currentToken = await requestTokenFromIAM();
+
+  // Call the downstream API. Silently re-request a token from IAM if it expired.
+  for (;;) {
+    try {
+      validateToken(currentToken, task.scope, task.api);
+
+      await new Promise((r) => setTimeout(r, 150 + Math.random() * 300));
+
+      const handler = MOCK_RESPONSES[task.tool];
+      const result = handler ? handler(task.parameters) : { status: 'ok', tool: task.tool };
+
+      return {
+        agentExecution: {
+          id: uuidv4(),
+          agentName: agentDisplayName,
+          agentType: task.agent === 'buyer-agent' ? 'buyer-agent' : 'publisher-agent',
+          taskId: task.taskId,
+          tokenLabel: currentToken.label,
+          apiCalled: `${task.api} API`,
+          toolCalled: task.tool,
+          parameters: task.parameters,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          status: 'complete',
+          response: result,
+          notes: `scope: ${task.scope}`,
+        },
+        result,
+      };
+    } catch (err) {
+      if (err instanceof ApiGatewayError && err.code === 'token_expired') {
+        currentToken = await requestTokenFromIAM('Token expired — re-issued after workflow ledger re-verification');
+      } else {
+        throw err;
+      }
+    }
+  }
 }

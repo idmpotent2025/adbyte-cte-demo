@@ -1,53 +1,29 @@
 import { NextRequest } from 'next/server';
-import { SignJWT } from 'jose';
 import { v4 as uuidv4 } from 'uuid';
-import { isDemoMode } from '@/lib/auth0';
-import { getDemoSession } from '@/lib/demo-session';
+import { auth0 } from '@/lib/auth0';
 import { hashPrompt, generatePlanId, generateWorkflowId } from '@/lib/crypto';
 import { runOrchestrator } from '@/lib/agents/orchestrator';
-import { performTokenExchange } from '@/lib/agents/iam-agent';
-import { runSpecializedAgent, ApiGatewayError } from '@/lib/agents/specialized-agents';
-import { waitForApproval } from '@/lib/approval-registry';
+import { runSpecializedAgent } from '@/lib/agents/specialized-agents';
+import { openWorkflow, closeWorkflow } from '@/lib/workflow-ledger';
 import { registerToken } from '@/lib/token-registry';
-import type { WorkflowRun, IssuedToken, AgentExecution, PlanTask } from '@/lib/types';
+import type { WorkflowRun, IssuedToken, AgentExecution } from '@/lib/types';
 
-const DEMO_SECRET = new TextEncoder().encode(
-  (process.env.DEMO_JWT_SECRET ?? 'adbyte-demo-secret-key-minimum-32-chars!!').padEnd(32, '!'),
-);
-
-async function mintUserToken(userId: string, email: string, isDemoModeFlag: boolean): Promise<IssuedToken> {
+async function mintUserToken(): Promise<IssuedToken> {
   const id = uuidv4();
-  const audience = process.env.AUTH0_AUDIENCE ?? 'https://admanager.demo/api';
-  let rawToken: string;
+  const { token: rawToken } = await auth0.getAccessToken();
 
-  if (isDemoModeFlag) {
-    rawToken = await new SignJWT({
-      sub: userId,
-      email,
-      aud: audience,
-      azp: 'adbyte-portal',
-      scope: 'openid profile email',
-    })
-      .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
-      .setIssuedAt()
-      .setExpirationTime('1h')
-      .setJti(id)
-      .sign(DEMO_SECRET);
-  } else {
-    rawToken = '';
-  }
-
-  const [rawHeader, rawPayload] = rawToken.split('.');
-  const header = JSON.parse(Buffer.from(rawHeader, 'base64url').toString());
-  const payload = JSON.parse(Buffer.from(rawPayload, 'base64url').toString());
+  const parts = rawToken.split('.');
+  const header = JSON.parse(Buffer.from(parts[0], 'base64url').toString());
+  const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
 
   const issuedAt = new Date().toISOString();
+
   const token: IssuedToken = {
     id,
     label: 'User Portal Token',
     issuedAt,
     grantType: 'authorization_code',
-    issuedBy: isDemoModeFlag ? 'demo-iam' : 'auth0',
+    issuedBy: 'auth0',
     rawToken,
     header,
     payload,
@@ -67,7 +43,7 @@ async function mintUserToken(userId: string, email: string, isDemoModeFlag: bool
     workflowId: '',
     grantType: 'authorization_code',
     scope: (payload.scope as string) ?? '',
-    audience: (payload.aud as string) ?? '',
+    audience: Array.isArray(payload.aud) ? payload.aud[0] : (payload.aud as string) ?? '',
     payload,
   });
 
@@ -84,35 +60,16 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // Get session
-  let userId: string;
-  let userEmail: string;
-  let userRole: 'buyer' | 'publisher';
-
-  if (isDemoMode) {
-    const session = await getDemoSession();
-    if (!session?.role) {
-      return new Response(JSON.stringify({ error: 'Not authenticated' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    userId = session.sub;
-    userEmail = session.email;
-    userRole = session.role;
-  } else {
-    const { auth0 } = await import('@/lib/auth0');
-    const session = await auth0!.getSession();
-    if (!session?.user) {
-      return new Response(JSON.stringify({ error: 'Not authenticated' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    userId = session.user.sub as string;
-    userEmail = session.user.email as string;
-    userRole = (session.user['adbyte/role'] as 'buyer' | 'publisher') ?? 'buyer';
+  const session = await auth0.getSession();
+  if (!session?.user) {
+    return new Response(JSON.stringify({ error: 'Not authenticated' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
+
+  const userId = session.user.sub as string;
+  const userRole = (session.user['adbyte/role'] as 'buyer' | 'publisher') ?? 'buyer';
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -124,7 +81,6 @@ export async function POST(req: NextRequest) {
       const promptHash = hashPrompt(prompt);
       const planId = generatePlanId(promptHash);
       const workflowId = generateWorkflowId();
-      const agentIp = '10.0.1.' + Math.floor(Math.random() * 254 + 1);
 
       const run: WorkflowRun = {
         id: workflowId,
@@ -138,14 +94,13 @@ export async function POST(req: NextRequest) {
         summary: '',
         status: 'planning',
         startedAt: new Date().toISOString(),
-        isDemoMode,
         userRole,
         userId,
       };
 
       try {
-        // Step 1: Mint user portal token
-        const userToken = await mintUserToken(userId, userEmail, isDemoMode);
+        // Step 1: Retrieve the user's Auth0 access token (subject_token for downstream CTE)
+        const userToken = await mintUserToken();
         run.tokens = [userToken];
 
         const orchExec: AgentExecution = {
@@ -159,7 +114,7 @@ export async function POST(req: NextRequest) {
         run.executions = [orchExec];
         emit(run);
 
-        // Step 2: Run orchestrator (OpenAI)
+        // Step 2: Orchestrator plans the workflow
         const plan = await runOrchestrator(prompt, userRole, planId);
         orchExec.status = 'complete';
         orchExec.completedAt = new Date().toISOString();
@@ -171,111 +126,58 @@ export async function POST(req: NextRequest) {
         run.status = 'executing';
         emit(run);
 
+        openWorkflow(workflowId, userId, plan.tasks.map((t) => ({
+          taskId: t.taskId, agent: t.agent, api: t.api, scope: t.scope,
+        })));
+
         // Step 3: Execute tasks sequentially (respecting dependsOn)
         const completed = new Set<string>();
-        const taskTokens = new Map<string, IssuedToken>();
 
         for (const task of run.tasks) {
-          // Wait for dependencies
           for (const dep of task.dependsOn) {
             if (!completed.has(dep)) {
-              // In real impl would wait; here we just proceed (mock is fast)
+              // In real impl would wait; here we proceed (mock APIs are synchronous)
             }
           }
 
           task.status = 'running';
-          emit(run);
 
-          // IAM Agent: perform token exchange for this task
-          const iamExec: AgentExecution = {
+          // Orchestrator delegates this task to the specialized agent.
+          // The agent requests its own token from IAM — it never receives the user
+          // token and never knows Auth0 client IDs, client secrets, or audience URLs.
+          const agentDisplayName = task.agent === 'buyer-agent' ? 'Buyer Agent' : 'Publisher Agent';
+          const agentRunExec: AgentExecution = {
             id: uuidv4(),
-            agentName: 'IAM Agent',
-            agentType: 'iam-agent',
+            agentName: agentDisplayName,
+            agentType: task.agent,
             taskId: task.taskId,
             startedAt: new Date().toISOString(),
             status: 'running',
-            notes: `Exchanging token for ${task.agent} → ${task.api} API (scope: ${task.scope})`,
+            notes: task.description,
           };
-          run.executions.push(iamExec);
+          run.executions.push(agentRunExec);
           emit(run);
 
-          const agentToken = await performTokenExchange({
-            userToken,
-            agentName: task.agent,
-            api: task.api,
-            scope: task.scope,
-            planId,
-            workflowId,
-            agentIp,
-            isDemoMode,
-          });
-
-          iamExec.status = 'complete';
-          iamExec.completedAt = new Date().toISOString();
-          iamExec.tokenLabel = agentToken.label;
-          run.tokens.push(agentToken);
-          taskTokens.set(task.taskId, agentToken);
-          emit(run);
-
-          // Specialized agent: call mock API (with revocation pause/resume)
-          let currentToken = agentToken;
-          for (;;) {
-            try {
-              const { execution: agentExec, result } = await runSpecializedAgent(task, currentToken);
-              run.executions.push(agentExec);
-              task.status = 'complete';
-              task.result = result;
-              completed.add(task.taskId);
-              emit(run);
-              break;
-            } catch (err) {
-              if (err instanceof ApiGatewayError && err.code === 'token_revoked') {
-                run.status = 'awaiting_approval';
-                run.pendingApproval = {
-                  taskId: task.taskId,
-                  revokedTokenId: currentToken.id,
-                  revokedTokenLabel: currentToken.label,
-                  agentName: task.agent,
-                };
+          const { agentExecution, result } = await runSpecializedAgent(
+            task,
+            { workflowId, planId, userToken },
+            (event) => {
+              // IAM issued a token — stream it to the UI immediately
+              if (event.type === 'iam_complete') {
+                run.executions.push(event.iamExecution);
+                run.tokens.push(event.token);
                 emit(run);
-
-                await waitForApproval(workflowId);
-
-                const newToken = await performTokenExchange({
-                  userToken,
-                  agentName: task.agent,
-                  api: task.api,
-                  scope: task.scope,
-                  planId,
-                  workflowId,
-                  agentIp,
-                  isDemoMode,
-                  taskId: task.taskId,
-                });
-
-                run.tokens.push(newToken);
-                taskTokens.set(task.taskId, newToken);
-                run.executions.push({
-                  id: uuidv4(),
-                  agentName: 'IAM Agent',
-                  agentType: 'iam-agent',
-                  taskId: task.taskId,
-                  startedAt: new Date().toISOString(),
-                  completedAt: new Date().toISOString(),
-                  status: 'complete',
-                  tokenLabel: newToken.label,
-                  notes: 'Re-issued token after user approved re-authorization',
-                });
-                run.status = 'executing';
-                run.pendingApproval = undefined;
-                currentToken = newToken;
-                emit(run);
-                // loop continues — retry with new token
-              } else {
-                throw err;
               }
-            }
-          }
+            },
+          );
+
+          // Swap the "running" placeholder for the completed execution record
+          run.executions = run.executions.filter((e) => e.id !== agentRunExec.id);
+          run.executions.push(agentExecution);
+          task.status = 'complete';
+          task.result = result;
+          completed.add(task.taskId);
+          emit(run);
         }
 
         run.status = 'complete';
@@ -287,6 +189,7 @@ export async function POST(req: NextRequest) {
         run.summary = err instanceof Error ? err.message : 'Unknown error';
         emit(run);
       } finally {
+        closeWorkflow(workflowId, run.status === 'complete' ? 'complete' : 'error');
         controller.close();
       }
     },

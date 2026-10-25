@@ -11,7 +11,7 @@ import {
   BackgroundVariant,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import type { WorkflowRun, AgentExecution } from '@/lib/types';
+import type { WorkflowRun } from '@/lib/types';
 
 const NODE_STYLES: Record<string, { bg: string; border: string; color: string; emoji: string }> = {
   user: { bg: '#0d1117', border: '#30363d', color: '#8b949e', emoji: '👤' },
@@ -55,23 +55,31 @@ const nodeTypes = { agentNode: AgentNode };
 function buildGraph(run: WorkflowRun): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
-  let y = 0;
 
-  // User node
+  const CENTER_X = 300;
+  const COL_GAP = 220;
+
+  // Row y positions: User → Orchestrator → Specialized Agents → IAM → APIs
+  const Y_USER = 0;
+  const Y_ORCH = 100;
+  const Y_AGENTS = 240;
+  const Y_IAM = 380;
+  const Y_API = 520;
+
+  // User
   nodes.push({
     id: 'user',
     type: 'agentNode',
-    position: { x: 250, y },
+    position: { x: CENTER_X, y: Y_USER },
     data: { label: 'User', type: 'user', note: run.userRole },
   });
-  y += 100;
 
   // Orchestrator
   const orchExec = run.executions.find((e) => e.agentType === 'orchestrator');
   nodes.push({
     id: 'orchestrator',
     type: 'agentNode',
-    position: { x: 250, y },
+    position: { x: CENTER_X, y: Y_ORCH },
     data: {
       label: 'Orchestrator',
       type: 'orchestrator',
@@ -88,9 +96,60 @@ function buildGraph(run: WorkflowRun): { nodes: Node[]; edges: Edge[] } {
     labelStyle: { fill: '#8b949e', fontSize: 11 },
     markerEnd: { type: MarkerType.ArrowClosed, color: '#30363d' },
   });
-  y += 100;
 
-  // IAM Agent
+  // Specialized agents (unique by agent type) — placed ABOVE IAM
+  const agentTypes = [...new Set(run.tasks.map((t) => t.agent))];
+  const agentX: Record<string, number> = {};
+  const agentStartX = CENTER_X - ((agentTypes.length - 1) * COL_GAP) / 2;
+  agentTypes.forEach((ag, i) => {
+    agentX[ag] = agentStartX + i * COL_GAP;
+  });
+
+  agentTypes.forEach((agent) => {
+    // Derive status from run.tasks (not executions) — executions have both placeholder
+    // and final records per agent, so tasks.status is the authoritative source.
+    const agentTasks = run.tasks.filter((t) => t.agent === agent);
+    const agStatus =
+      agentTasks.some((t) => t.status === 'running') ? 'running' :
+      agentTasks.length > 0 && agentTasks.every((t) => t.status === 'complete') ? 'complete' :
+      agentTasks.length > 0 ? 'pending' : undefined;
+
+    nodes.push({
+      id: agent,
+      type: 'agentNode',
+      position: { x: agentX[agent], y: Y_AGENTS },
+      data: {
+        label: agent === 'buyer-agent' ? 'Buyer Agent' : 'Publisher Agent',
+        type: agent,
+        status: agStatus,
+        note: agentTasks.length > 0 ? `${agentTasks.length} task(s)` : undefined,
+      },
+    });
+
+    // Orchestrator delegates task to agent
+    edges.push({
+      id: `orch-${agent}`,
+      source: 'orchestrator',
+      target: agent,
+      label: 'task',
+      style: { stroke: '#1f6feb' },
+      labelStyle: { fill: '#58a6ff', fontSize: 11 },
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#1f6feb' },
+    });
+
+    // Agent requests token from IAM (agent → IAM, dashed amber)
+    edges.push({
+      id: `${agent}-iam`,
+      source: agent,
+      target: 'iam-agent',
+      label: 'request token',
+      style: { stroke: '#e3b341', strokeDasharray: '5,3' },
+      labelStyle: { fill: '#e3b341', fontSize: 10 },
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#e3b341' },
+    });
+  });
+
+  // IAM Agent — below specialized agents
   const iamExecs = run.executions.filter((e) => e.agentType === 'iam-agent');
   const iamStatus = iamExecs.length > 0
     ? (iamExecs.every((e) => e.status === 'complete') ? 'complete' : 'running')
@@ -99,69 +158,20 @@ function buildGraph(run: WorkflowRun): { nodes: Node[]; edges: Edge[] } {
   nodes.push({
     id: 'iam-agent',
     type: 'agentNode',
-    position: { x: 250, y },
+    position: { x: CENTER_X, y: Y_IAM },
     data: {
       label: 'IAM Agent',
       type: 'iam-agent',
       status: iamStatus,
-      note: iamExecs.length > 0 ? `${iamExecs.length} CTE(s) performed` : 'awaiting tasks',
+      note: iamExecs.length > 0 ? `${iamExecs.length} CTE(s) issued` : 'awaiting request',
     },
   });
-  edges.push({
-    id: 'orch-iam',
-    source: 'orchestrator',
-    target: 'iam-agent',
-    label: 'delegate',
-    style: { stroke: '#30363d' },
-    labelStyle: { fill: '#8b949e', fontSize: 11 },
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#30363d' },
-  });
-  y += 100;
-
-  // Specialized agents (unique by agent type)
-  const agentTypes = [...new Set(run.tasks.map((t) => t.agent))];
-  const agentX: Record<string, number> = {};
-  const startX = 250 - ((agentTypes.length - 1) * 200) / 2;
-  agentTypes.forEach((ag, i) => {
-    agentX[ag] = startX + i * 200;
-  });
-
-  agentTypes.forEach((agent) => {
-    const agExecs = run.executions.filter((e) => e.agentType === agent);
-    const agStatus = agExecs.length > 0
-      ? (agExecs.every((e) => e.status === 'complete') ? 'complete' :
-        agExecs.some((e) => e.status === 'running') ? 'running' : 'pending')
-      : undefined;
-    const tasks = run.tasks.filter((t) => t.agent === agent);
-
-    nodes.push({
-      id: agent,
-      type: 'agentNode',
-      position: { x: agentX[agent], y },
-      data: {
-        label: agent === 'buyer-agent' ? 'Buyer Agent' : 'Publisher Agent',
-        type: agent,
-        status: agStatus,
-        note: tasks.length > 0 ? `${tasks.length} task(s)` : undefined,
-      },
-    });
-    edges.push({
-      id: `iam-${agent}`,
-      source: 'iam-agent',
-      target: agent,
-      label: 'scoped token',
-      style: { stroke: '#e3b341', strokeDasharray: '5,3' },
-      labelStyle: { fill: '#e3b341', fontSize: 10 },
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#e3b341' },
-    });
-  });
-  y += 100;
 
   // API nodes
   const apis = [...new Set(run.tasks.map((t) => t.api))];
   const apiX: Record<string, number> = {};
-  const apiStartX = 250 - ((apis.length - 1) * 180) / 2;
-  apis.forEach((api, i) => { apiX[api] = apiStartX + i * 180; });
+  const apiStartX = CENTER_X - ((apis.length - 1) * COL_GAP) / 2;
+  apis.forEach((api, i) => { apiX[api] = apiStartX + i * COL_GAP; });
 
   apis.forEach((api) => {
     const apiTasks = run.tasks.filter((t) => t.api === api);
@@ -169,7 +179,7 @@ function buildGraph(run: WorkflowRun): { nodes: Node[]; edges: Edge[] } {
     nodes.push({
       id: `api-${api}`,
       type: 'agentNode',
-      position: { x: apiX[api], y },
+      position: { x: apiX[api], y: Y_API },
       data: {
         label: `${api.charAt(0).toUpperCase() + api.slice(1)} API`,
         type: 'api',
@@ -178,20 +188,20 @@ function buildGraph(run: WorkflowRun): { nodes: Node[]; edges: Edge[] } {
     });
   });
 
-  // Agent → API edges
+  // Agent → API edges (with scoped token from IAM back to agent implied by graph position)
   run.tasks.forEach((task) => {
-    const agent = task.agent;
     const apiId = `api-${task.api}`;
-    const edgeId = `${agent}-${apiId}-${task.taskId}`;
+    const edgeId = `${task.agent}-${apiId}-${task.taskId}`;
     if (!edges.find((e) => e.id === edgeId)) {
+      const done = task.status === 'complete';
       edges.push({
         id: edgeId,
-        source: agent,
+        source: task.agent,
         target: apiId,
         label: task.scope,
-        style: { stroke: task.status === 'complete' ? '#56d364' : '#30363d', strokeOpacity: 0.7 },
+        style: { stroke: done ? '#56d364' : '#30363d', strokeOpacity: 0.7 },
         labelStyle: { fill: '#6e7681', fontSize: 9 },
-        markerEnd: { type: MarkerType.ArrowClosed, color: task.status === 'complete' ? '#56d364' : '#30363d' },
+        markerEnd: { type: MarkerType.ArrowClosed, color: done ? '#56d364' : '#30363d' },
       });
     }
   });
@@ -218,9 +228,10 @@ export default function AgentGraphView({ run }: { run: WorkflowRun | null }) {
     <div className="space-y-4">
       {/* Narrative banner */}
       <div className="p-3 rounded-lg text-xs" style={{ background: 'rgba(227,179,65,0.08)', border: '1px solid rgba(227,179,65,0.2)', color: '#8b949e' }}>
-        <span style={{ color: '#e3b341' }}>⚠ Note:</span>{' '}
-        Agent orchestration and handoff is handled in <strong style={{ color: '#c9d1d9' }}>application code</strong> — not Auth0.
-        {' '}Auth0 CTE only handles token delegation. OBO is not used — it is not a standard grant type.
+        <span style={{ color: '#e3b341' }}>Key:</span>{' '}
+        Orchestrator delegates <strong style={{ color: '#c9d1d9' }}>tasks</strong> to agents.
+        Each agent independently requests a <strong style={{ color: '#e3b341' }}>CTE token</strong> from IAM —
+        agents never see Auth0 credentials or the user token.
       </div>
 
       {/* Plan info */}
@@ -231,7 +242,7 @@ export default function AgentGraphView({ run }: { run: WorkflowRun | null }) {
       </div>
 
       {/* React Flow */}
-      <div className="rounded-xl overflow-hidden" style={{ height: 480, border: '1px solid #30363d', background: '#161b22' }}>
+      <div className="rounded-xl overflow-hidden" style={{ height: 520, border: '1px solid #30363d', background: '#161b22' }}>
         <ReactFlow
           nodes={nodes}
           edges={edges}

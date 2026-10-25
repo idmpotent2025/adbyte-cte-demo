@@ -1,11 +1,5 @@
 import { Auth0Client } from '@auth0/nextjs-auth0/server';
 
-export const isDemoMode =
-  process.env.DEMO_MODE === 'true' ||
-  !process.env.AUTH0_DOMAIN ||
-  !process.env.AUTH0_CLIENT_ID ||
-  !process.env.AUTH0_SECRET;
-
 let _auth0Client: Auth0Client | null = null;
 
 function getAuth0Client(): Auth0Client {
@@ -15,19 +9,14 @@ function getAuth0Client(): Auth0Client {
         scope: 'openid profile email',
         audience: process.env.AUTH0_AUDIENCE,
       },
+      routes: {
+        login: '/api/auth/login',
+        callback: '/api/auth/callback',
+        logout: '/api/auth/logout',
+      },
     });
   }
   return _auth0Client;
 }
 
-export const auth0 = isDemoMode ? null : getAuth0Client();
-
-export async function getSession() {
-  if (isDemoMode) return null;
-  return getAuth0Client().getSession();
-}
-
-export async function getAccessToken() {
-  if (isDemoMode) return null;
-  return getAuth0Client().getAccessToken();
-}
+export const auth0 = getAuth0Client();

@@ -1,17 +1,8 @@
-import { SignJWT } from 'jose';
 import { v4 as uuidv4 } from 'uuid';
-import type { IssuedToken, UserRole } from '../types';
+import type { IssuedToken } from '../types';
 import { registerToken } from '../token-registry';
-
-const DEMO_SECRET = new TextEncoder().encode(
-  (process.env.DEMO_JWT_SECRET ?? 'adbyte-demo-secret-key-minimum-32-chars!!').padEnd(32, '!'),
-);
-
-const API_AUDIENCES: Record<string, string> = {
-  audience: process.env.AUDIENCE_API_IDENTIFIER ?? 'https://admanager.demo/audience',
-  proposal: process.env.PROPOSAL_API_IDENTIFIER ?? 'https://admanager.demo/proposal',
-  pricing: process.env.PRICING_API_IDENTIFIER ?? 'https://admanager.demo/pricing',
-};
+import { isAgentAuthorized } from '../workflow-ledger';
+import { getCteProfile, getTokenLabel } from '../cte-profiles';
 
 export async function performTokenExchange(opts: {
   userToken: IssuedToken;
@@ -20,102 +11,35 @@ export async function performTokenExchange(opts: {
   scope: string;
   planId: string;
   workflowId: string;
-  agentIp: string;
-  isDemoMode: boolean;
   taskId?: string;
 }): Promise<IssuedToken> {
-  const { userToken, agentName, api, scope, planId, workflowId, agentIp, isDemoMode, taskId } = opts;
-  const audience = API_AUDIENCES[api];
-  const actingClientId = `demo-${agentName}`;
-  const now = new Date().toISOString();
-  const id = uuidv4();
+  const { userToken, agentName, api, scope, workflowId, taskId } = opts;
 
-  if (!isDemoMode) {
-    return await performAuth0CTE(opts, audience, actingClientId, id, now);
+  if (!isAgentAuthorized(workflowId, agentName, api, scope)) {
+    throw new Error(`IAM: "${agentName}" not authorized for ${api}:${scope} — request not in orchestration plan`);
   }
 
-  // Demo mode: mint a realistic CTE-simulated token using jose
-  const subFromUser = userToken.payload.sub as string;
-  const payload = await new SignJWT({
-    iss: `https://demo.admanager.auth0.com/`,
-    aud: audience,
-    sub: subFromUser, // preserved from user token (key CTE property)
-    azp: actingClientId, // changed to the acting agent client
-    scope,
-    act: { sub: actingClientId }, // RFC 8693 actor claim
-    // Custom claims demonstrating CTE enrichment
-    'adbyte/plan_id': planId,
-    'adbyte/workflow_id': workflowId,
-    'adbyte/agent_ip': agentIp,
-    'adbyte/delegated_by': 'iam-agent',
-  })
-    .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
-    .setIssuedAt()
-    .setExpirationTime('1h')
-    .setJti(id)
-    .sign(DEMO_SECRET);
+  const profile = getCteProfile(agentName);
+  const tokenLabel = getTokenLabel(agentName, api);
 
-  const [rawHeader, rawPayload] = payload.split('.');
-  const decodedHeader = JSON.parse(Buffer.from(rawHeader, 'base64url').toString());
-  const decodedPayload = JSON.parse(Buffer.from(rawPayload, 'base64url').toString());
+  const requestedScopes = scope.split(' ').filter(Boolean);
+  const disallowed = requestedScopes.filter((s) => !profile.allowedScopes.includes(s));
+  if (disallowed.length > 0) {
+    throw new Error(`IAM: scope(s) "${disallowed.join(', ')}" not permitted by profile "${profile.name}"`);
+  }
 
-  const issuedToken: IssuedToken = {
-    id,
-    label: `${agentName} → ${api} API token`,
-    issuedAt: now,
-    grantType: 'token_exchange',
-    issuedBy: 'demo-iam',
-    rawToken: payload,
-    header: decodedHeader,
-    payload: decodedPayload,
-    exchangeRequest: {
-      grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
-      subject_token_label: userToken.label,
-      audience,
-      scope,
-      acting_client_id: actingClientId,
-    },
-    highlights: {
-      preserved: ['sub'],
-      changed: ['azp', 'aud', 'scope', 'act', 'adbyte/plan_id', 'adbyte/agent_ip'],
-    },
-  };
-
-  registerToken({
-    id,
-    label: issuedToken.label,
-    issuedAt: now,
-    expiresAt: new Date((decodedPayload.exp as number) * 1000).toISOString(),
-    status: 'active',
-    agentName,
-    workflowId,
-    taskId,
-    grantType: 'token_exchange',
-    scope,
-    audience,
-    payload: decodedPayload,
-  });
-
-  return issuedToken;
-}
-
-async function performAuth0CTE(
-  opts: Parameters<typeof performTokenExchange>[0],
-  audience: string,
-  actingClientId: string,
-  id: string,
-  now: string,
-): Promise<IssuedToken> {
-  const { userToken, scope } = opts;
+  const id = uuidv4();
+  const now = new Date().toISOString();
 
   const params = new URLSearchParams({
     grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
     subject_token: userToken.rawToken,
     subject_token_type: 'urn:ietf:params:oauth:token-type:access_token',
-    audience,
+    requested_token_type: profile.requestedSubTokenType,
+    audience: profile.audience,
     scope,
-    client_id: process.env.IAM_AGENT_CLIENT_ID!,
-    client_secret: process.env.IAM_AGENT_CLIENT_SECRET!,
+    client_id: profile.clientId,
+    client_secret: profile.clientSecret,
   });
 
   const resp = await fetch(`https://${process.env.AUTH0_DOMAIN}/oauth/token`, {
@@ -126,7 +50,7 @@ async function performAuth0CTE(
 
   if (!resp.ok) {
     const err = await resp.text();
-    throw new Error(`Auth0 CTE failed: ${err}`);
+    throw new Error(`Auth0 CTE failed for "${tokenLabel}": ${err}`);
   }
 
   const data = await resp.json() as { access_token: string };
@@ -136,9 +60,9 @@ async function performAuth0CTE(
   const decodedHeader = JSON.parse(Buffer.from(rawHeader, 'base64url').toString());
   const decodedPayload = JSON.parse(Buffer.from(rawPayload, 'base64url').toString());
 
-  return {
+  const issuedToken: IssuedToken = {
     id,
-    label: `${opts.agentName} → ${opts.api} API token (Auth0 CTE)`,
+    label: tokenLabel,
     issuedAt: now,
     grantType: 'token_exchange',
     issuedBy: 'auth0',
@@ -148,13 +72,32 @@ async function performAuth0CTE(
     exchangeRequest: {
       grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
       subject_token_label: userToken.label,
-      audience,
+      requested_sub_token_type: profile.requestedSubTokenType,
+      audience: profile.audience,
       scope,
-      acting_client_id: actingClientId,
+      acting_client_id: profile.clientId,
+      cte_profile_name: profile.name,
     },
     highlights: {
       preserved: ['sub'],
       changed: ['azp', 'aud', 'scope', 'act'],
     },
   };
+
+  registerToken({
+    id,
+    label: tokenLabel,
+    issuedAt: now,
+    expiresAt: new Date((decodedPayload.exp as number) * 1000).toISOString(),
+    status: 'active',
+    agentName,
+    workflowId,
+    taskId,
+    grantType: 'token_exchange',
+    scope,
+    audience: profile.audience,
+    payload: decodedPayload,
+  });
+
+  return issuedToken;
 }

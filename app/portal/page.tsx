@@ -1,40 +1,23 @@
 export const instant = false;
 
 import { redirect } from 'next/navigation';
-import { isDemoMode } from '@/lib/auth0';
-import { getDemoSession } from '@/lib/demo-session';
+import { auth0 } from '@/lib/auth0';
 import PortalClient from './PortalClient';
 
 export default async function PortalPage() {
-  let userName = '';
-  let userEmail = '';
-  let userRole: 'buyer' | 'publisher' = 'buyer';
-  let userCompany = '';
-  let userSub = '';
+  const session = await auth0.getSession();
+  if (!session?.user) redirect('/api/auth/login');
 
-  if (isDemoMode) {
-    const session = await getDemoSession();
-    if (!session) redirect('/');
-    if (!session.role) redirect('/join');
-    userName = session.name;
-    userEmail = session.email;
-    userRole = session.role;
-    userCompany = session.company ?? '';
-    userSub = session.sub;
-  } else {
-    const { auth0 } = await import('@/lib/auth0');
-    const session = await auth0!.getSession();
-    if (!session?.user) redirect('/auth/login');
-    const u = session.user;
-    userName = (u.name as string) ?? '';
-    userEmail = (u.email as string) ?? '';
-    userRole = (u['adbyte/role'] as 'buyer' | 'publisher') ?? 'buyer';
-    userSub = u.sub as string;
-  }
-
+  const u = session.user;
   return (
     <PortalClient
-      user={{ name: userName, email: userEmail, role: userRole, company: userCompany, sub: userSub }}
+      user={{
+        name: (u.name as string) ?? '',
+        email: (u.email as string) ?? '',
+        role: (u['adbyte/role'] as 'buyer' | 'publisher') ?? 'buyer',
+        company: '',
+        sub: u.sub as string,
+      }}
     />
   );
 }

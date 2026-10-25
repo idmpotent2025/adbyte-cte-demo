@@ -1,31 +1,6 @@
-'use client';
-
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import LandingCards from './LandingCards';
 
 export default function LandingPage() {
-  const router = useRouter();
-  const [loading, setLoading] = useState<'buyer' | 'publisher' | null>(null);
-  const [error, setError] = useState('');
-
-  async function handleDemoLogin(persona: 'buyer' | 'publisher') {
-    setLoading(persona);
-    setError('');
-    try {
-      const res = await fetch('/api/auth/demo-login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ persona }),
-      });
-      if (!res.ok) throw new Error('Login failed');
-      router.push('/join');
-    } catch {
-      setError('Login failed. Please try again.');
-    } finally {
-      setLoading(null);
-    }
-  }
-
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4"
       style={{ background: 'linear-gradient(135deg, #0d1117 0%, #161b22 50%, #0d1117 100%)' }}>
@@ -55,105 +30,10 @@ export default function LandingPage() {
         <code className="px-1 rounded text-xs" style={{ background: '#21262d', color: '#e3b341' }}>scope</code>
       </p>
 
-      {/* Login cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-2xl">
-        {/* Buyer / Agency */}
-        <button
-          onClick={() => handleDemoLogin('buyer')}
-          disabled={loading !== null}
-          className="group relative p-6 rounded-xl text-left transition-all duration-200 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{
-            background: '#161b22',
-            border: '1px solid #30363d',
-            boxShadow: '0 0 0 0 rgba(31,111,235,0)',
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.borderColor = '#1f6feb';
-            (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 0 20px rgba(31,111,235,0.15)';
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.borderColor = '#30363d';
-            (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 0 0 0 rgba(31,111,235,0)';
-          }}>
-          <div className="flex items-start gap-4">
-            <div className="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-xl"
-              style={{ background: 'rgba(31,111,235,0.15)' }}>
-              🏢
-            </div>
-            <div>
-              <div className="font-semibold mb-1" style={{ color: '#e6edf3' }}>Agency / Buyer</div>
-              <div className="text-sm mb-3" style={{ color: '#8b949e' }}>
-                Login as a media agency or brand advertiser. Create campaigns, target audiences, negotiate deals.
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {['audience:segment', 'proposals:write', 'pricing:negotiate'].map((s) => (
-                  <span key={s} className="text-xs px-2 py-0.5 rounded-full"
-                    style={{ background: 'rgba(31,111,235,0.1)', color: '#58a6ff', border: '1px solid rgba(31,111,235,0.2)' }}>
-                    {s}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
-          {loading === 'buyer' && (
-            <div className="absolute inset-0 flex items-center justify-center rounded-xl"
-              style={{ background: 'rgba(13,17,23,0.8)' }}>
-              <div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin"
-                style={{ borderColor: '#1f6feb', borderTopColor: 'transparent' }} />
-            </div>
-          )}
-        </button>
-
-        {/* Publisher */}
-        <button
-          onClick={() => handleDemoLogin('publisher')}
-          disabled={loading !== null}
-          className="group relative p-6 rounded-xl text-left transition-all duration-200 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{
-            background: '#161b22',
-            border: '1px solid #30363d',
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.borderColor = '#8b5cf6';
-            (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 0 20px rgba(139,92,246,0.15)';
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.borderColor = '#30363d';
-            (e.currentTarget as HTMLButtonElement).style.boxShadow = '';
-          }}>
-          <div className="flex items-start gap-4">
-            <div className="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-xl"
-              style={{ background: 'rgba(139,92,246,0.15)' }}>
-              📺
-            </div>
-            <div>
-              <div className="font-semibold mb-1" style={{ color: '#e6edf3' }}>Publisher (Enterprise)</div>
-              <div className="text-sm mb-3" style={{ color: '#8b949e' }}>
-                Login as a media publisher or broadcaster. Manage inventory, create audience segments.
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {['audience:analyze', 'proposals:submit', 'pricing:approve'].map((s) => (
-                  <span key={s} className="text-xs px-2 py-0.5 rounded-full"
-                    style={{ background: 'rgba(139,92,246,0.1)', color: '#c4b5fd', border: '1px solid rgba(139,92,246,0.2)' }}>
-                    {s}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
-          {loading === 'publisher' && (
-            <div className="absolute inset-0 flex items-center justify-center rounded-xl"
-              style={{ background: 'rgba(13,17,23,0.8)' }}>
-              <div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin"
-                style={{ borderColor: '#8b5cf6', borderTopColor: 'transparent' }} />
-            </div>
-          )}
-        </button>
-      </div>
-
-      {error && (
-        <p className="mt-4 text-sm text-red-400">{error}</p>
-      )}
+      <LandingCards
+        buyerHref="/api/auth/login?returnTo=/portal"
+        publisherHref="/api/auth/login?connection=oktaidp&returnTo=/portal"
+      />
 
       {/* Footer */}
       <div className="mt-16 flex items-center gap-2 text-xs" style={{ color: '#6e7681' }}>
@@ -161,7 +41,7 @@ export default function LandingPage() {
           <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
           <path d="M7 11V7a5 5 0 0110 0v4" />
         </svg>
-        Demo mode — no Auth0 tenant required
+        Auth0 powered — select your role to log in
       </div>
     </div>
   );
