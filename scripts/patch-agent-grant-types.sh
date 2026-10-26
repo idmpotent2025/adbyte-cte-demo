@@ -46,7 +46,7 @@ patch_client() {
     -H "Content-Type: application/json" \
     -d "${PAYLOAD}")
 
-  body=$(echo "$response" | head -n -1)
+  body=$(echo "$response" | sed '$d')
   status=$(echo "$response" | tail -n 1)
 
   if [[ "$status" == "200" ]]; then
