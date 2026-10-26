@@ -28,6 +28,7 @@ export default function PortalClient({ user, userToken }: Props) {
   const [run, setRun] = useState<WorkflowRun | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [statusText, setStatusText] = useState('');
+  const [activeTab, setActiveTab] = useState<'workflow' | 'graph'>('workflow');
   const abortRef = useRef<AbortController | null>(null);
 
   const examples = EXAMPLE_PROMPTS[user.role ?? 'buyer'];
@@ -37,6 +38,7 @@ export default function PortalClient({ user, userToken }: Props) {
     setIsRunning(true);
     setRun(null);
     setStatusText('Initializing…');
+    setActiveTab('graph');
     abortRef.current = new AbortController();
 
     try {
@@ -141,107 +143,190 @@ export default function PortalClient({ user, userToken }: Props) {
       {/* Two-column body */}
       <div className="flex-1 flex overflow-hidden">
 
-        {/* ── Left: workflow area ── */}
-        <div className="flex-1 flex flex-col gap-5 px-6 py-6 overflow-y-auto min-w-0">
+        {/* ── Left: tabbed area ── */}
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
 
-          {/* Prompt card */}
-          <div className="rounded-xl p-4" style={{ background: '#161b22', border: '1px solid #30363d' }}>
-            <div className="flex items-start gap-3 mb-3">
-              <div
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-base flex-shrink-0"
-                style={{ background: 'rgba(31,111,235,0.15)' }}>
-                🤖
-              </div>
-              <div>
-                <div className="font-medium text-sm" style={{ color: '#e6edf3' }}>Orchestrator Agent</div>
-                <div className="text-xs" style={{ color: '#6e7681' }}>GPT-4o · structured planning · CTE token delegation</div>
-              </div>
-            </div>
-
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleRun(); }}
-              placeholder="Describe your ad campaign goal…"
-              rows={3}
-              disabled={isRunning}
-              className="w-full rounded-lg p-3 text-sm resize-none outline-none transition-colors"
-              style={{
-                background: '#0d1117',
-                border: '1px solid #30363d',
-                color: '#e6edf3',
-                fontFamily: 'var(--font-geist-sans), system-ui',
-              }}
-              onFocus={(e) => { e.currentTarget.style.borderColor = '#1f6feb'; }}
-              onBlur={(e) => { e.currentTarget.style.borderColor = '#30363d'; }}
-            />
-
-            <div className="flex flex-wrap gap-2 mt-2 mb-3">
-              {examples.map((ex, i) => (
-                <button
-                  key={i}
-                  onClick={() => setPrompt(ex)}
-                  disabled={isRunning}
-                  className="text-xs px-2.5 py-1 rounded-lg transition-colors"
-                  style={{ background: '#21262d', color: '#8b949e', border: '1px solid #30363d' }}>
-                  {ex.slice(0, 60)}…
-                </button>
-              ))}
-            </div>
-
-            <div className="flex items-center gap-3">
+          {/* Tab bar */}
+          <div
+            className="flex items-center gap-1 px-4 pt-3 pb-0 flex-shrink-0"
+            style={{ borderBottom: '1px solid #21262d' }}>
+            {(['workflow', 'graph'] as const).map((tab) => (
               <button
-                onClick={handleRun}
-                disabled={!prompt.trim() || isRunning}
-                className="px-4 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-40"
-                style={{ background: '#238636', color: '#fff' }}>
-                {isRunning ? (
-                  <span className="flex items-center gap-2">
-                    <div className="w-3.5 h-3.5 border border-white/30 border-t-white rounded-full animate-spin" />
-                    Running…
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className="px-4 py-2 text-sm rounded-t-lg transition-colors relative"
+                style={{
+                  color: activeTab === tab ? '#e6edf3' : '#6e7681',
+                  background: activeTab === tab ? '#0d1117' : 'transparent',
+                  borderTop: activeTab === tab ? '1px solid #30363d' : '1px solid transparent',
+                  borderLeft: activeTab === tab ? '1px solid #30363d' : '1px solid transparent',
+                  borderRight: activeTab === tab ? '1px solid #30363d' : '1px solid transparent',
+                  borderBottom: activeTab === tab ? '1px solid #0d1117' : '1px solid transparent',
+                  marginBottom: activeTab === tab ? '-1px' : '0',
+                }}>
+                {tab === 'workflow' ? 'Workflow' : (
+                  <span className="flex items-center gap-1.5">
+                    Agent Graph
+                    {run && run.executions.length > 0 && (
+                      <span
+                        className="text-xs px-1.5 py-0 rounded-full"
+                        style={{ background: '#30363d', color: '#8b949e' }}>
+                        {run.executions.length}
+                      </span>
+                    )}
                   </span>
-                ) : '▶ Run Workflow'}
+                )}
               </button>
-
-              {statusText && (
-                <span
-                  className="text-xs"
-                  style={{ color: isRunning ? '#e3b341' : run?.status === 'error' ? '#f85149' : '#56d364' }}>
-                  {statusText}
-                </span>
-              )}
-
-              <span className="ml-auto text-xs" style={{ color: '#6e7681' }}>⌘ + Enter</span>
-            </div>
+            ))}
           </div>
 
-          {/* Summary */}
-          {run?.summary && run.status !== 'error' && (
-            <div
-              className="px-4 py-3 rounded-lg text-sm"
-              style={{ background: 'rgba(35,134,54,0.1)', border: '1px solid rgba(35,134,54,0.3)', color: '#56d364' }}>
-              ✓ {run.summary}
+          {/* Workflow tab */}
+          {activeTab === 'workflow' && (
+            <div className="flex-1 flex flex-col gap-5 px-6 py-6 overflow-y-auto">
+
+              {/* Prompt card */}
+              <div className="rounded-xl p-4" style={{ background: '#161b22', border: '1px solid #30363d' }}>
+                <div className="flex items-start gap-3 mb-3">
+                  <div
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-base flex-shrink-0"
+                    style={{ background: 'rgba(31,111,235,0.15)' }}>
+                    🤖
+                  </div>
+                  <div>
+                    <div className="font-medium text-sm" style={{ color: '#e6edf3' }}>Orchestrator Agent</div>
+                    <div className="text-xs" style={{ color: '#6e7681' }}>GPT-4o · structured planning · CTE token delegation</div>
+                  </div>
+                </div>
+
+                <textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleRun(); }}
+                  placeholder="Describe your ad campaign goal…"
+                  rows={3}
+                  disabled={isRunning}
+                  className="w-full rounded-lg p-3 text-sm resize-none outline-none transition-colors"
+                  style={{
+                    background: '#0d1117',
+                    border: '1px solid #30363d',
+                    color: '#e6edf3',
+                    fontFamily: 'var(--font-geist-sans), system-ui',
+                  }}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = '#1f6feb'; }}
+                  onBlur={(e) => { e.currentTarget.style.borderColor = '#30363d'; }}
+                />
+
+                <div className="flex flex-wrap gap-2 mt-2 mb-3">
+                  {examples.map((ex, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setPrompt(ex)}
+                      disabled={isRunning}
+                      className="text-xs px-2.5 py-1 rounded-lg transition-colors"
+                      style={{ background: '#21262d', color: '#8b949e', border: '1px solid #30363d' }}>
+                      {ex.slice(0, 60)}…
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleRun}
+                    disabled={!prompt.trim() || isRunning}
+                    className="px-4 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-40"
+                    style={{ background: '#238636', color: '#fff' }}>
+                    {isRunning ? (
+                      <span className="flex items-center gap-2">
+                        <div className="w-3.5 h-3.5 border border-white/30 border-t-white rounded-full animate-spin" />
+                        Running…
+                      </span>
+                    ) : '▶ Run Workflow'}
+                  </button>
+
+                  {statusText && (
+                    <span
+                      className="text-xs"
+                      style={{ color: isRunning ? '#e3b341' : run?.status === 'error' ? '#f85149' : '#56d364' }}>
+                      {statusText}
+                    </span>
+                  )}
+
+                  {run && (
+                    <button
+                      onClick={() => setActiveTab('graph')}
+                      className="ml-auto text-xs px-3 py-1.5 rounded-lg transition-colors"
+                      style={{ background: '#21262d', color: '#8b949e', border: '1px solid #30363d' }}>
+                      View Agent Graph →
+                    </button>
+                  )}
+
+                  {!run && <span className="ml-auto text-xs" style={{ color: '#6e7681' }}>⌘ + Enter</span>}
+                </div>
+              </div>
+
+              {/* Summary */}
+              {run?.summary && run.status !== 'error' && (
+                <div
+                  className="px-4 py-3 rounded-lg text-sm"
+                  style={{ background: 'rgba(35,134,54,0.1)', border: '1px solid rgba(35,134,54,0.3)', color: '#56d364' }}>
+                  ✓ {run.summary}
+                </div>
+              )}
+
+              {/* Task list */}
+              {run && run.tasks.length > 0 && (
+                <div className="rounded-xl overflow-hidden" style={{ background: '#161b22', border: '1px solid #30363d' }}>
+                  <div className="px-4 py-2.5" style={{ borderBottom: '1px solid #21262d' }}>
+                    <span className="text-sm font-medium" style={{ color: '#e6edf3' }}>Tasks</span>
+                    <span className="ml-2 text-xs" style={{ color: '#6e7681' }}>
+                      {run.tasks.filter((t) => t.status === 'complete').length}/{run.tasks.length} complete
+                    </span>
+                  </div>
+                  <div className="divide-y" style={{ borderColor: '#21262d' }}>
+                    {run.tasks.map((task) => (
+                      <div key={task.taskId} className="px-4 py-2.5 flex items-start gap-3">
+                        <div
+                          className="mt-0.5 w-2 h-2 rounded-full flex-shrink-0"
+                          style={{
+                            background:
+                              task.status === 'complete' ? '#56d364' :
+                              task.status === 'running' ? '#e3b341' : '#30363d',
+                          }}
+                        />
+                        <div className="min-w-0">
+                          <div className="text-xs" style={{ color: '#e6edf3' }}>{task.description}</div>
+                          <div className="text-xs mt-0.5" style={{ color: '#6e7681' }}>
+                            {task.agent} · {task.api} · {task.scope}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Agent Graph */}
-          {run && (
-            <div
-              className="flex-1 rounded-xl overflow-hidden"
-              style={{ background: '#161b22', border: '1px solid #30363d', minHeight: '300px' }}>
-              <div
-                className="px-4 py-2.5 flex items-center gap-2"
-                style={{ borderBottom: '1px solid #21262d' }}>
-                <span className="text-sm font-medium" style={{ color: '#e6edf3' }}>Agent Graph</span>
-                {run.executions.length > 0 && (
-                  <span
-                    className="text-xs px-1.5 py-0.5 rounded-full"
-                    style={{ background: '#30363d', color: '#8b949e' }}>
-                    {run.executions.length}
-                  </span>
-                )}
-              </div>
-              <AgentGraphView run={run} />
+          {/* Agent Graph tab */}
+          {activeTab === 'graph' && (
+            <div className="flex-1 overflow-hidden p-4">
+              {run ? (
+                <div className="h-full rounded-xl overflow-hidden" style={{ background: '#161b22', border: '1px solid #30363d' }}>
+                  <AgentGraphView run={run} />
+                </div>
+              ) : (
+                <div className="h-full flex items-center justify-center" style={{ color: '#6e7681' }}>
+                  <div className="text-center">
+                    <div className="text-sm">No workflow running</div>
+                    <button
+                      onClick={() => setActiveTab('workflow')}
+                      className="mt-2 text-xs px-3 py-1.5 rounded-lg"
+                      style={{ background: '#21262d', color: '#8b949e', border: '1px solid #30363d' }}>
+                      ← Back to Workflow
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
