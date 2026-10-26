@@ -59,21 +59,12 @@ function TokenCard({ token, index, now }: { token: IssuedToken; index: number; n
         )}
       </div>
 
-      {/* Claims */}
-      <div className="space-y-1 mb-2" style={{ fontFamily: 'monospace' }}>
-        {(
-          [
-            ['sub', String(token.payload.sub ?? '—').slice(0, 26)],
-            ['azp', String(token.payload.azp ?? '—')],
-            ['scope', String(token.payload.scope ?? '—')],
-          ] as [string, string][]
-        ).map(([k, v]) => (
-          <div key={k} className="flex gap-2 text-xs">
-            <span className="w-8 flex-shrink-0" style={{ color: '#6e7681' }}>{k}</span>
-            <span className="truncate" style={{ color: '#c9d1d9' }}>{v}</span>
-          </div>
-        ))}
-      </div>
+      {/* Raw JWT payload */}
+      <pre
+        className="text-xs rounded p-2 mb-2 overflow-x-auto"
+        style={{ background: '#0d1117', color: '#8b949e', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+        {JSON.stringify(token.payload, null, 2)}
+      </pre>
 
       {/* IAM reasoning — only shown on CTE tokens */}
       {token.grantType === 'token_exchange' && token.iamReasoning && (
