@@ -87,6 +87,8 @@ function TokenCard({ token, index, now }: { token: IssuedToken; index: number; n
           <div style={{ color: '#8b949e', lineHeight: '1.5' }}>{token.iamReasoning}</div>
         </div>
       )}
+
+      <TtlBar token={token} now={now} />
     </div>
   );
 }
@@ -95,11 +97,36 @@ interface Props {
   tokens: IssuedToken[];
 }
 
+function TtlBar({ token, now }: { token: IssuedToken; now: number }) {
+  const exp = token.payload.exp as number | undefined;
+  const iat = token.payload.iat as number | undefined;
+  if (!exp || !iat) return null;
+  const remaining = exp - now;
+  const total = exp - iat;
+  const pct = Math.max(0, Math.min(100, (remaining / total) * 100));
+  const color = pct > 50 ? '#56d364' : pct > 25 ? '#e3b341' : '#f85149';
+  const label =
+    remaining <= 0 ? 'Expired'
+    : remaining < 60 ? `${Math.ceil(remaining)}s`
+    : `${Math.floor(remaining / 60)}m ${Math.floor(remaining % 60)}s`;
+
+  return (
+    <div className="mt-2">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs" style={{ color: '#484f58' }}>TTL</span>
+        <span className="text-xs font-mono" style={{ color }}>{label}</span>
+      </div>
+      <div className="h-1 rounded-full overflow-hidden" style={{ background: '#21262d' }}>
+        <div className="h-full rounded-full transition-all duration-1000" style={{ width: `${pct}%`, background: color }} />
+      </div>
+    </div>
+  );
+}
+
 export default function TokenSidebar({ tokens }: Props) {
-  // Check every 2 minutes whether tokens have expired
   const [now, setNow] = useState(() => Date.now() / 1000);
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now() / 1000), 120_000);
+    const id = setInterval(() => setNow(Date.now() / 1000), 1000);
     return () => clearInterval(id);
   }, []);
 
