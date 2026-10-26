@@ -10,8 +10,13 @@ import type { WorkflowRun, IssuedToken, AgentExecution } from '@/lib/types';
 
 async function mintUserToken(): Promise<IssuedToken> {
   const id = uuidv4();
+  console.log(`[mintUserToken] calling getAccessToken — AUTH0_AUDIENCE in Auth0Client config=${process.env.AUTH0_AUDIENCE ?? 'NOT SET'}`);
   const result = await auth0.getAccessToken();
-  console.log(`[workflow/run] getAccessToken type=${typeof result} keys=${result && typeof result === 'object' ? Object.keys(result).join(',') : 'n/a'}`);
+  console.log(`[mintUserToken] getAccessToken returned — type=${typeof result} keys=${result && typeof result === 'object' ? Object.keys(result).join(',') : 'n/a'}`);
+  if (result && typeof result === 'object') {
+    const obj = result as Record<string, unknown>;
+    console.log(`[mintUserToken] token value present=${!!obj.token} token length=${typeof obj.token === 'string' ? obj.token.length : 'n/a'} token_type=${obj.token_type} audience=${obj.audience}`);
+  }
   const rawToken: string = typeof result === 'string' ? result : (result as unknown as { token: string }).token;
   if (!rawToken) throw new Error('No access token in session — ensure AUTH0_AUDIENCE is set in Vercel env vars');
   const tokenParts = rawToken.split('.');
@@ -59,6 +64,7 @@ async function mintUserToken(): Promise<IssuedToken> {
 }
 
 export async function POST(req: NextRequest) {
+  console.log(`[workflow/run] POST hit — AUTH0_AUDIENCE=${process.env.AUTH0_AUDIENCE ?? 'NOT SET'} AUTH0_DOMAIN=${process.env.AUTH0_DOMAIN ?? 'NOT SET'}`);
   const { prompt } = await req.json() as { prompt: string };
 
   if (!prompt?.trim()) {
