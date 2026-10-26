@@ -14,11 +14,13 @@ export default async function PortalPage() {
 
   // Build the user's login token for display in TokenSidebar
   let userToken: IssuedToken | null = null;
-  const rawToken = (session as Record<string, unknown>).tokenSet
-    ? ((session as Record<string, unknown>).tokenSet as Record<string, unknown>).accessToken as string | undefined
-    : undefined;
+  let rawToken: string | undefined;
+  try {
+    const tokenResult = await auth0.getAccessToken();
+    rawToken = typeof tokenResult === 'string' ? tokenResult : (tokenResult as unknown as { token: string }).token;
+  } catch { /* not fatal — token sidebar just won't show user token */ }
 
-  if (rawToken) {
+  if (rawToken && rawToken.split('.').length === 3) {
     try {
       const [rawHeader, rawPayload] = rawToken.split('.');
       const header = JSON.parse(Buffer.from(rawHeader, 'base64url').toString());
