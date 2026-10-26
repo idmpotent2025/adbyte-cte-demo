@@ -21,13 +21,15 @@ async function mintUserToken(): Promise<IssuedToken> {
   if (!rawToken) throw new Error('No access token in session — ensure AUTH0_AUDIENCE is set in Vercel env vars');
   const tokenParts = rawToken.split('.');
   console.log(`[workflow/run] rawToken length=${rawToken.length} parts=${tokenParts.length}`);
-  if (tokenParts.length !== 3) {
+  if (tokenParts.length === 1) {
     throw new Error('Access token is opaque (not a JWT) — set AUTH0_AUDIENCE in Vercel env vars to receive a signed JWT');
   }
 
-  const parts = rawToken.split('.');
-  const header = JSON.parse(Buffer.from(parts[0], 'base64url').toString());
-  const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+  // 3 parts = plain JWT; 5 parts = JWE (encrypted JWT, Auth0 tenant setting)
+  const isJwe = tokenParts.length === 5;
+  const header = isJwe ? { alg: 'JWE', enc: 'encrypted' } : JSON.parse(Buffer.from(tokenParts[0], 'base64url').toString());
+  const payload = isJwe ? { sub: '(encrypted)', iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 3600 } : JSON.parse(Buffer.from(tokenParts[1], 'base64url').toString());
+  console.log(`[workflow/run] token format=${isJwe ? 'JWE' : 'JWT'} sub=${payload.sub}`);
 
   const issuedAt = new Date().toISOString();
 

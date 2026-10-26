@@ -20,11 +20,12 @@ export default async function PortalPage() {
     rawToken = typeof tokenResult === 'string' ? tokenResult : (tokenResult as unknown as { token: string }).token;
   } catch { /* not fatal — token sidebar just won't show user token */ }
 
-  if (rawToken && rawToken.split('.').length === 3) {
+  if (rawToken && rawToken.split('.').length >= 3) {
     try {
-      const [rawHeader, rawPayload] = rawToken.split('.');
-      const header = JSON.parse(Buffer.from(rawHeader, 'base64url').toString());
-      const payload = JSON.parse(Buffer.from(rawPayload, 'base64url').toString());
+      const parts = rawToken.split('.');
+      const isJwe = parts.length === 5;
+      const header = isJwe ? { alg: 'JWE', enc: 'encrypted' } : JSON.parse(Buffer.from(parts[0], 'base64url').toString());
+      const payload = isJwe ? { sub: '(encrypted)', iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 3600 } : JSON.parse(Buffer.from(parts[1], 'base64url').toString());
       userToken = {
         id: uuidv4(),
         label: `${u.name ?? u.email} (login)`,
