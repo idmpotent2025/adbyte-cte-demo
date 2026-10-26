@@ -15,12 +15,15 @@
 set -euo pipefail
 
 # ── Args ──────────────────────────────────────────────────────────────────────
-if [[ $# -lt 1 ]]; then
-  echo "Usage: $0 <MGMT_API_TOKEN>"
+# Read token from stdin (pipe a file to avoid token appearing in shell history/logs)
+#   cat token.txt | ./scripts/patch-agent-grant-types.sh
+if [[ -t 0 ]]; then
+  echo "Usage: cat <token-file> | $0"
+  echo "       (pipe the Management API token via stdin to keep it out of shell logs)"
   exit 1
 fi
 
-MGMT_TOKEN="$1"
+MGMT_TOKEN=$(cat | tr -d '[:space:]')
 
 # ── Config ────────────────────────────────────────────────────────────────────
 DOMAIN="${AUTH0_DOMAIN:?AUTH0_DOMAIN is not set}"
