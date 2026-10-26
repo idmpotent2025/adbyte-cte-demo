@@ -137,7 +137,12 @@ export async function runSpecializedAgent(
   onProgress: (event: AgentProgressEvent) => void,
 ): Promise<{ agentExecution: AgentExecution; result: unknown }> {
   const startedAt = new Date().toISOString();
-  const agentDisplayName = task.agent === 'buyer-agent' ? 'Buyer Agent' : 'Publisher Agent';
+  const AGENT_DISPLAY: Record<string, string> = {
+    'buyer-agent': 'Buyer Agent',
+    'pricing-agent': 'Pricing Agent',
+    'publisher-agent': 'Publisher Agent',
+  };
+  const agentDisplayName = AGENT_DISPLAY[task.agent] ?? task.agent;
 
   // The agent asks IAM for a token by describing the task — it does not know or
   // request specific scopes. IAM's LLM decides the minimal scopes from its profile.
@@ -187,7 +192,7 @@ export async function runSpecializedAgent(
         agentExecution: {
           id: uuidv4(),
           agentName: agentDisplayName,
-          agentType: task.agent === 'buyer-agent' ? 'buyer-agent' : 'publisher-agent',
+          agentType: task.agent,
           taskId: task.taskId,
           tokenLabel: currentToken.label,
           apiCalled: `${task.api} API`,

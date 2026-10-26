@@ -16,8 +16,8 @@ const MOCK_PLANS: Record<'buyer' | 'publisher', OrchestratorPlan> = {
       { taskId: 't1', agent: 'buyer-agent', description: 'Search for sports audiences aged 18-34', api: 'audience', tool: 'search_audiences', scope: 'audience:read', parameters: { query: 'sports', filters: { age: '18-34' } }, dependsOn: [] },
       { taskId: 't2', agent: 'buyer-agent', description: 'Analyze reach for found audience segment', api: 'audience', tool: 'analyze_reach', scope: 'audience:analyze', parameters: { segment_id: 'seg_sports_1834' }, dependsOn: ['t1'] },
       { taskId: 't3', agent: 'buyer-agent', description: 'Create proposal for Q4 campaign', api: 'proposal', tool: 'create_proposal', scope: 'proposals:write', parameters: { audience_id: 'seg_sports_1834', budget: 300000, flight_dates: 'Q4 2026' }, dependsOn: ['t2'] },
-      { taskId: 't4', agent: 'buyer-agent', description: 'Get rate card for audience', api: 'pricing', tool: 'get_rates', scope: 'pricing:read', parameters: { audience_id: 'seg_sports_1834', format: 'video' }, dependsOn: ['t3'] },
-      { taskId: 't5', agent: 'buyer-agent', description: 'Negotiate deal below $9 CPM', api: 'pricing', tool: 'negotiate_deal', scope: 'pricing:negotiate', parameters: { proposal_id: 'prop_001', target_cpm: 8.5 }, dependsOn: ['t4'] },
+      { taskId: 't4', agent: 'pricing-agent', description: 'Get rate card for audience', api: 'pricing', tool: 'get_rates', scope: 'pricing:read', parameters: { audience_id: 'seg_sports_1834', format: 'video' }, dependsOn: ['t3'] },
+      { taskId: 't5', agent: 'pricing-agent', description: 'Negotiate deal below $9 CPM', api: 'pricing', tool: 'negotiate_deal', scope: 'pricing:negotiate', parameters: { proposal_id: 'prop_001', target_cpm: 8.5 }, dependsOn: ['t4'] },
     ],
   },
   publisher: {
@@ -35,7 +35,8 @@ const MOCK_PLANS: Record<'buyer' | 'publisher', OrchestratorPlan> = {
 const SYSTEM_PROMPT = `You are an Ad Manager orchestrator agent. You receive user prompts from ad buyers or publishers and create an execution plan.
 
 Available agents and their capabilities:
-- buyer-agent: handles audience targeting, proposals, and pricing for agency/buyer users
+- buyer-agent: handles audience targeting and proposals for agency/buyer users (apis: audience, proposal)
+- pricing-agent: handles all pricing negotiations and rate queries for buyer users (api: pricing only)
 - publisher-agent: handles audience segments, inventory proposals, and pricing for publisher users
 
 Available APIs and tools:
@@ -66,7 +67,7 @@ const RESPONSE_SCHEMA = {
         additionalProperties: false,
         properties: {
           taskId: { type: 'string' },
-          agent: { type: 'string', enum: ['buyer-agent', 'publisher-agent'] },
+          agent: { type: 'string', enum: ['buyer-agent', 'pricing-agent', 'publisher-agent'] },
           description: { type: 'string' },
           api: { type: 'string', enum: ['audience', 'proposal', 'pricing'] },
           tool: { type: 'string' },

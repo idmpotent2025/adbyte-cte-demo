@@ -9,7 +9,7 @@ export interface CteProfile {
   allowedScopes: string[];
 }
 
-const PROFILES: Record<'buyer-agent' | 'publisher-agent', CteProfile> = {
+const PROFILES: Record<'buyer-agent' | 'publisher-agent' | 'pricing-agent', CteProfile> = {
   'buyer-agent': {
     name: 'Buyer Agent',
     subjectTokenType: process.env.BUYER_AGENT_SUBJECT_TOKEN_TYPE ?? 'urn:ietf:params:oauth:token-type:access_token',
@@ -19,7 +19,19 @@ const PROFILES: Record<'buyer-agent' | 'publisher-agent', CteProfile> = {
     audience: process.env.BUYER_AGENT_AUDIENCE ?? 'https://admanager.demo/buyer',
     allowedScopes: (
       process.env.BUYER_AGENT_SCOPES ??
-      'audience:segment audience:read audience:analyze proposals:write proposals:read proposals:submit pricing:negotiate pricing:read'
+      'audience:segment audience:read audience:analyze proposals:write proposals:read proposals:submit'
+    ).split(/[\s,]+/).filter(Boolean),
+  },
+  'pricing-agent': {
+    name: 'Pricing Agent',
+    subjectTokenType: process.env.PRICING_AGENT_SUBJECT_TOKEN_TYPE ?? 'urn:ietf:params:oauth:token-type:access_token',
+    requestedSubTokenType: 'urn:ietf:params:oauth:token-type:access_token',
+    clientId: process.env.PRICING_AGENT_CLIENT_ID ?? '',
+    clientSecret: process.env.PRICING_AGENT_CLIENT_SECRET ?? '',
+    audience: process.env.PRICING_AGENT_AUDIENCE ?? 'https://admanager.demo/buyer',
+    allowedScopes: (
+      process.env.PRICING_AGENT_SCOPES ??
+      'pricing:read pricing:negotiate pricing:approve'
     ).split(/[\s,]+/).filter(Boolean),
   },
   'publisher-agent': {
@@ -37,23 +49,22 @@ const PROFILES: Record<'buyer-agent' | 'publisher-agent', CteProfile> = {
 };
 
 const TOKEN_LABELS: Record<string, string> = {
-  'buyer-agent:audience':     'Buyer Audience Segmentation Token',
-  'buyer-agent:proposal':     'Buyer Proposal Token',
-  'buyer-agent:pricing':      'Buyer Pricing Negotiation Token',
-  'publisher-agent:audience': 'Publisher Audience Analytics Token',
-  'publisher-agent:proposal': 'Publisher Proposal Management Token',
-  'publisher-agent:pricing':  'Publisher Deal Approval Token',
+  'buyer-agent:audience':      'Buyer Audience Segmentation Token',
+  'buyer-agent:proposal':      'Buyer Proposal Token',
+  'pricing-agent:pricing':     'Pricing Agent Negotiation Token',
+  'publisher-agent:audience':  'Publisher Audience Analytics Token',
+  'publisher-agent:proposal':  'Publisher Proposal Management Token',
+  'publisher-agent:pricing':   'Publisher Deal Approval Token',
 };
 
-export function getCteProfile(agentName: 'buyer-agent' | 'publisher-agent'): CteProfile {
+export type AgentName = 'buyer-agent' | 'pricing-agent' | 'publisher-agent';
+
+export function getCteProfile(agentName: AgentName): CteProfile {
   const profile = PROFILES[agentName];
   if (!profile) throw new Error(`No CTE profile defined for agent "${agentName}"`);
   return profile;
 }
 
-export function getTokenLabel(
-  agentName: 'buyer-agent' | 'publisher-agent',
-  api: 'audience' | 'proposal' | 'pricing',
-): string {
+export function getTokenLabel(agentName: AgentName, api: 'audience' | 'proposal' | 'pricing'): string {
   return TOKEN_LABELS[`${agentName}:${api}`] ?? `${agentName} — ${api} token`;
 }

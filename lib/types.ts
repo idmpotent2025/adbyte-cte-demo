@@ -27,7 +27,7 @@ export interface SessionUser {
 
 export interface PlanTask {
   taskId: string;
-  agent: 'buyer-agent' | 'publisher-agent';
+  agent: 'buyer-agent' | 'pricing-agent' | 'publisher-agent';
   description: string;
   api: 'audience' | 'proposal' | 'pricing';
   tool: string;
@@ -69,7 +69,7 @@ export interface IssuedToken {
 export interface AgentExecution {
   id: string;
   agentName: string;
-  agentType: 'orchestrator' | 'iam-agent' | 'buyer-agent' | 'publisher-agent';
+  agentType: 'orchestrator' | 'iam-agent' | 'buyer-agent' | 'pricing-agent' | 'publisher-agent';
   taskId?: string;
   tokenLabel?: string;
   apiCalled?: string;
@@ -103,7 +103,7 @@ export interface OrchestratorPlan {
   reasoning: string;
   tasks: Array<{
     taskId: string;
-    agent: 'buyer-agent' | 'publisher-agent';
+    agent: 'buyer-agent' | 'pricing-agent' | 'publisher-agent';
     description: string;
     api: 'audience' | 'proposal' | 'pricing';
     tool: string;

@@ -18,6 +18,7 @@ const NODE_STYLES: Record<string, { bg: string; border: string; color: string; e
   orchestrator: { bg: 'rgba(31,111,235,0.15)', border: '#1f6feb', color: '#58a6ff', emoji: '🎯' },
   'iam-agent': { bg: 'rgba(227,179,65,0.12)', border: '#e3b341', color: '#e3b341', emoji: '🔑' },
   'buyer-agent': { bg: 'rgba(35,134,54,0.15)', border: '#238636', color: '#56d364', emoji: '🏢' },
+  'pricing-agent': { bg: 'rgba(249,115,22,0.12)', border: '#f97316', color: '#fb923c', emoji: '💰' },
   'publisher-agent': { bg: 'rgba(139,92,246,0.15)', border: '#8b5cf6', color: '#c4b5fd', emoji: '📺' },
   api: { bg: '#161b22', border: '#30363d', color: '#6e7681', emoji: '⚡' },
 };
@@ -114,12 +115,18 @@ function buildGraph(run: WorkflowRun): { nodes: Node[]; edges: Edge[] } {
       agentTasks.length > 0 && agentTasks.every((t) => t.status === 'complete') ? 'complete' :
       agentTasks.length > 0 ? 'pending' : undefined;
 
+    const AGENT_LABELS: Record<string, string> = {
+      'buyer-agent': 'Buyer Audience Agent',
+      'pricing-agent': 'Buyer Pricing Agent',
+      'publisher-agent': 'Publisher Agent',
+    };
+
     nodes.push({
       id: agent,
       type: 'agentNode',
       position: { x: agentX[agent], y: Y_AGENTS },
       data: {
-        label: agent === 'buyer-agent' ? 'Buyer Agent' : 'Publisher Agent',
+        label: AGENT_LABELS[agent] ?? agent,
         type: agent,
         status: agStatus,
         note: agentTasks.length > 0 ? `${agentTasks.length} task(s)` : undefined,

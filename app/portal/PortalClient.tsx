@@ -9,8 +9,8 @@ const AgentGraphView = dynamic(() => import('./components/AgentGraphView'), { ss
 
 const EXAMPLE_PROMPTS = {
   buyer: [
-    'Find sports audiences aged 18-34, create a $300k Q4 proposal, and negotiate a deal below $9 CPM',
-    'Research premium auto intender segments and submit a connected TV proposal for the holiday season',
+    'Find sports audiences aged 18-34, build a $300k Q4 proposal, then negotiate the best CPM deal',
+    'Research premium auto intender segments, create a connected TV proposal, and get the lowest possible rate',
   ],
   publisher: [
     'Analyze our sports audience reach and create a premium sponsorship package for agency buyers',
@@ -296,7 +296,10 @@ export default function PortalClient({ user, userToken }: Props) {
                         <div className="min-w-0">
                           <div className="text-xs" style={{ color: '#e6edf3' }}>{task.description}</div>
                           <div className="text-xs mt-0.5" style={{ color: '#6e7681' }}>
-                            {task.agent} · {task.api} · {task.scope}
+                            {task.agent === 'buyer-agent' ? 'Buyer Audience Agent' :
+                             task.agent === 'pricing-agent' ? 'Buyer Pricing Agent' :
+                             task.agent === 'publisher-agent' ? 'Publisher Agent' : task.agent}
+                            {' · '}{task.api} · {task.scope}
                           </div>
                         </div>
                       </div>

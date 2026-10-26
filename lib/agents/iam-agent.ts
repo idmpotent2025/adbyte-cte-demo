@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { IssuedToken } from '../types';
 import { registerToken } from '../token-registry';
 import { isAgentAuthorized } from '../workflow-ledger';
-import { getCteProfile, getTokenLabel } from '../cte-profiles';
+import { getCteProfile, getTokenLabel, type AgentName } from '../cte-profiles';
 
 let _openai: OpenAI | null = null;
 function getOpenAI() {
@@ -87,7 +87,7 @@ Return only the scopes from the available list that are strictly necessary for t
 
 export async function performTokenExchange(opts: {
   userToken: IssuedToken;
-  agentName: 'buyer-agent' | 'publisher-agent';
+  agentName: AgentName;
   api: 'audience' | 'proposal' | 'pricing';
   taskDescription: string;
   planId: string;
