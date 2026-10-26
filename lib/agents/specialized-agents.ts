@@ -186,7 +186,7 @@ export async function runSpecializedAgent(
       await new Promise((r) => setTimeout(r, 150 + Math.random() * 300));
 
       const handler = MOCK_RESPONSES[task.tool];
-      const result = handler ? handler(task.parameters) : { status: 'ok', tool: task.tool };
+      const result = handler ? handler(task.parameters ?? {}) : { status: 'ok', tool: task.tool };
 
       return {
         agentExecution: {

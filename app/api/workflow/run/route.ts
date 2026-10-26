@@ -117,7 +117,8 @@ export async function POST(req: NextRequest) {
       try {
         // Step 1: Retrieve the user's Auth0 access token (subject_token for downstream CTE)
         const userToken = await mintUserToken();
-        run.tokens = [userToken];
+        // userToken is shown in the UI via the portal page prop — don't add it here
+        // to avoid the token appearing twice in the token chain.
 
         const orchExec: AgentExecution = {
           id: uuidv4(),
