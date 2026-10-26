@@ -3,7 +3,7 @@
 import { useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import TokenSidebar from './components/TokenSidebar';
-import type { WorkflowRun, SessionUser } from '@/lib/types';
+import type { WorkflowRun, SessionUser, IssuedToken } from '@/lib/types';
 
 const AgentGraphView = dynamic(() => import('./components/AgentGraphView'), { ssr: false });
 
@@ -20,9 +20,10 @@ const EXAMPLE_PROMPTS = {
 
 interface Props {
   user: Pick<SessionUser, 'name' | 'email' | 'role' | 'company' | 'sub'>;
+  userToken?: IssuedToken | null;
 }
 
-export default function PortalClient({ user }: Props) {
+export default function PortalClient({ user, userToken }: Props) {
   const [prompt, setPrompt] = useState('');
   const [run, setRun] = useState<WorkflowRun | null>(null);
   const [isRunning, setIsRunning] = useState(false);
@@ -92,7 +93,11 @@ export default function PortalClient({ user }: Props) {
       ? { label: 'Publisher', bg: 'rgba(139,92,246,0.15)', color: '#c4b5fd', border: 'rgba(139,92,246,0.3)' }
       : { label: 'Agency Buyer', bg: 'rgba(31,111,235,0.15)', color: '#58a6ff', border: 'rgba(31,111,235,0.3)' };
 
-  const tokenCount = run?.tokens.length ?? 0;
+  const allTokens: IssuedToken[] = [
+    ...(userToken ? [userToken] : []),
+    ...(run?.tokens ?? []),
+  ];
+  const tokenCount = allTokens.length;
 
   return (
     <div className="h-screen flex flex-col" style={{ background: '#0d1117' }}>
@@ -269,7 +274,7 @@ export default function PortalClient({ user }: Props) {
 
           {/* Sidebar body — independently scrollable */}
           <div className="flex-1 overflow-y-auto px-3 py-3">
-            <TokenSidebar tokens={run?.tokens ?? []} />
+            <TokenSidebar tokens={allTokens} />
           </div>
         </div>
 
