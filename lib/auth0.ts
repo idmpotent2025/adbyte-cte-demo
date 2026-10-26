@@ -6,7 +6,7 @@ function getAuth0Client(): Auth0Client {
   if (!_auth0Client) {
     _auth0Client = new Auth0Client({
       authorizationParameters: {
-        scope: 'openid profile email',
+        scope: 'openid profile email manageAds',
         audience: process.env.AUTH0_AUDIENCE,
       },
       routes: {
