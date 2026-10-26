@@ -24,11 +24,13 @@ const PROFILES: Record<'buyer-agent' | 'publisher-agent' | 'pricing-agent', CteP
   },
   'pricing-agent': {
     name: 'Pricing Agent',
-    subjectTokenType: process.env.PRICING_AGENT_SUBJECT_TOKEN_TYPE ?? 'urn:ietf:params:oauth:token-type:access_token',
+    // Reuses buyer-agent M2M client — no separate M2M app needed.
+    // Auth0 issues a token for the pricing API audience using the same client grant.
+    subjectTokenType: process.env.PRICING_AGENT_SUBJECT_TOKEN_TYPE ?? process.env.BUYER_AGENT_SUBJECT_TOKEN_TYPE ?? 'urn:ietf:params:oauth:token-type:access_token',
     requestedSubTokenType: 'urn:ietf:params:oauth:token-type:access_token',
-    clientId: process.env.PRICING_AGENT_CLIENT_ID ?? '',
-    clientSecret: process.env.PRICING_AGENT_CLIENT_SECRET ?? '',
-    audience: process.env.PRICING_AGENT_AUDIENCE ?? 'https://admanager.demo/buyer',
+    clientId: process.env.PRICING_AGENT_CLIENT_ID ?? process.env.BUYER_AGENT_CLIENT_ID ?? '',
+    clientSecret: process.env.PRICING_AGENT_CLIENT_SECRET ?? process.env.BUYER_AGENT_CLIENT_SECRET ?? '',
+    audience: process.env.PRICING_AGENT_AUDIENCE ?? 'https://admanager.demo/pricing',
     allowedScopes: (
       process.env.PRICING_AGENT_SCOPES ??
       'pricing:read pricing:negotiate pricing:approve'
