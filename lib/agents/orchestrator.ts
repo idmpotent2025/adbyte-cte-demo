@@ -56,15 +56,14 @@ Return a structured execution plan with clear task sequencing and dependencies.`
 
 const RESPONSE_SCHEMA = {
   type: 'object',
+  additionalProperties: false,
   properties: {
-    reasoning: {
-      type: 'string',
-      description: 'Step-by-step reasoning for the plan',
-    },
+    reasoning: { type: 'string' },
     tasks: {
       type: 'array',
       items: {
         type: 'object',
+        additionalProperties: false,
         properties: {
           taskId: { type: 'string' },
           agent: { type: 'string', enum: ['buyer-agent', 'publisher-agent'] },
@@ -72,16 +71,12 @@ const RESPONSE_SCHEMA = {
           api: { type: 'string', enum: ['audience', 'proposal', 'pricing'] },
           tool: { type: 'string' },
           scope: { type: 'string' },
-          parameters: { type: 'object' },
           dependsOn: { type: 'array', items: { type: 'string' } },
         },
-        required: ['taskId', 'agent', 'description', 'api', 'tool', 'scope', 'parameters', 'dependsOn'],
+        required: ['taskId', 'agent', 'description', 'api', 'tool', 'scope', 'dependsOn'],
       },
     },
-    summary: {
-      type: 'string',
-      description: 'One-sentence summary of what will be accomplished',
-    },
+    summary: { type: 'string' },
   },
   required: ['reasoning', 'tasks', 'summary'],
 };
