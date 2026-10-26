@@ -92,11 +92,12 @@ export async function runOrchestrator(
   planId: string,
 ): Promise<OrchestratorPlan> {
   if (!process.env.OPENAI_API_KEY) {
-    // No API key — return a canned demo plan so the full token chain demo works
+    console.log(`[Orchestrator] No OPENAI_API_KEY — returning mock plan for role=${userRole}`);
     await new Promise((r) => setTimeout(r, 800)); // simulate latency
     return MOCK_PLANS[userRole];
   }
 
+  console.log(`[Orchestrator] LLM call — model=gpt-4o role=${userRole} planId=${planId} prompt="${prompt.slice(0, 80)}..."`);
   const response = await getOpenAI().chat.completions.create({
     model: 'gpt-4o',
     messages: [
@@ -120,5 +121,8 @@ export async function runOrchestrator(
   const content = response.choices[0]?.message?.content;
   if (!content) throw new Error('No response from orchestrator');
 
-  return JSON.parse(content) as OrchestratorPlan;
+  console.log(`[Orchestrator] LLM response received (${content.length} chars)`);
+  const plan = JSON.parse(content) as OrchestratorPlan;
+  console.log(`[Orchestrator] Plan has ${plan.tasks.length} tasks`);
+  return plan;
 }

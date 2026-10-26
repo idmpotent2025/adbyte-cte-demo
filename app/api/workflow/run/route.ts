@@ -11,8 +11,10 @@ import type { WorkflowRun, IssuedToken, AgentExecution } from '@/lib/types';
 async function mintUserToken(): Promise<IssuedToken> {
   const id = uuidv4();
   const result = await auth0.getAccessToken();
+  console.log(`[workflow/run] getAccessToken type=${typeof result} keys=${result && typeof result === 'object' ? Object.keys(result).join(',') : 'n/a'}`);
   const rawToken: string = typeof result === 'string' ? result : (result as unknown as { token: string }).token;
   if (!rawToken) throw new Error('No access token in session — ensure AUTH0_AUDIENCE is set');
+  console.log(`[workflow/run] rawToken length=${rawToken.length} parts=${rawToken.split('.').length}`);
 
   const parts = rawToken.split('.');
   const header = JSON.parse(Buffer.from(parts[0], 'base64url').toString());

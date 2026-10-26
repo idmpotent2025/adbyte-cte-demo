@@ -24,7 +24,7 @@ async function decideScopesWithLLM(
   allowedScopes: string[],
 ): Promise<IamScopeDecision> {
   if (!process.env.OPENAI_API_KEY) {
-    // Demo fallback: grant all allowedScopes for the relevant api
+    console.log(`[IAM] No OPENAI_API_KEY — demo fallback for ${agentName}/${api}`);
     const granted = allowedScopes.filter((s) => s.startsWith(`${api}:`));
     return {
       grantedScopes: granted,
@@ -33,6 +33,7 @@ async function decideScopesWithLLM(
     };
   }
 
+  console.log(`[IAM] LLM scope reasoning — agent=${agentName} api=${api} available=[${allowedScopes.join(',')}]`);
   const completion = await getOpenAI().chat.completions.create({
     model: 'gpt-4o',
     temperature: 0.1,
@@ -74,11 +75,13 @@ Return only the scopes from the available list that are strictly necessary for t
   });
 
   const raw = completion.choices[0].message.content ?? '{}';
+  console.log(`[IAM] LLM raw response: ${raw}`);
   const decision = JSON.parse(raw) as IamScopeDecision;
 
   // Safety: only ever grant scopes that are actually in the profile's allowedScopes
   const safe = decision.grantedScopes.filter((s) => allowedScopes.includes(s));
   const denied = allowedScopes.filter((s) => !safe.includes(s));
+  console.log(`[IAM] Granted scopes: [${safe.join(',')}] Denied: [${denied.join(',')}]`);
   return { grantedScopes: safe, reasoning: decision.reasoning, denied };
 }
 
@@ -93,10 +96,14 @@ export async function performTokenExchange(opts: {
 }): Promise<IssuedToken> {
   const { userToken, agentName, api, taskDescription, workflowId, taskId } = opts;
 
+  console.log(`[IAM] performTokenExchange — agent=${agentName} api=${api} workflowId=${workflowId} taskId=${taskId}`);
+
   if (!isAgentAuthorized(workflowId, agentName, api)) {
+    console.error(`[IAM] Authorization DENIED — agent=${agentName} api=${api} workflowId=${workflowId}`);
     throw new Error(`IAM: "${agentName}" not authorized for ${api} — request not in orchestration plan`);
   }
 
+  console.log(`[IAM] Authorization OK`);
   const profile = getCteProfile(agentName);
   const tokenLabel = getTokenLabel(agentName, api);
 
@@ -128,6 +135,7 @@ export async function performTokenExchange(opts: {
     client_secret: profile.clientSecret,
   });
 
+  console.log(`[IAM] Auth0 CTE request — domain=${process.env.AUTH0_DOMAIN} audience=${profile.audience} scope=${scope} client_id=${profile.clientId}`);
   const resp = await fetch(`https://${process.env.AUTH0_DOMAIN}/oauth/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -136,8 +144,10 @@ export async function performTokenExchange(opts: {
 
   if (!resp.ok) {
     const err = await resp.text();
+    console.error(`[IAM] Auth0 CTE FAILED — status=${resp.status} body=${err}`);
     throw new Error(`Auth0 CTE failed for "${tokenLabel}": ${err}`);
   }
+  console.log(`[IAM] Auth0 CTE success — status=${resp.status}`);
 
   const data = await resp.json() as { access_token: string };
   const rawToken = data.access_token;
