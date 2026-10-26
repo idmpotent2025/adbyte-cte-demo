@@ -19,9 +19,12 @@ function getAuth0Client(): Auth0Client {
   return _auth0Client;
 }
 
-// Proxy defers Auth0Client construction until first method call — env vars must be set by then
+// Proxy defers Auth0Client construction until first method call.
+// Methods are bound to the real instance so private fields remain accessible.
 export const auth0 = new Proxy({} as Auth0Client, {
   get(_: Auth0Client, prop: string | symbol) {
-    return (getAuth0Client() as unknown as Record<string | symbol, unknown>)[prop];
+    const client = getAuth0Client();
+    const value = (client as unknown as Record<string | symbol, unknown>)[prop];
+    return typeof value === 'function' ? (value as Function).bind(client) : value;
   },
 });
