@@ -128,7 +128,6 @@ export async function performTokenExchange(opts: {
     grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
     subject_token: userToken.rawToken,
     subject_token_type: profile.subjectTokenType,
-    requested_token_type: profile.requestedSubTokenType,
     audience: profile.audience,
     scope,
     client_id: profile.clientId,
